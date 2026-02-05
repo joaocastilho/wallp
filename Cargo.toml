@@ -27,6 +27,10 @@ windows = { version = "0.62.2", features = ["Win32_System_Console", "Win32_UI_Wi
 winreg = "0.55.0"
 notify-rust = "4.11.3"
 
+[features]
+tray = []
+default = ["tray"]
+
 [build-dependencies]
 winres = "0.1.12"
 
