@@ -23,8 +23,6 @@ pub fn init_wizard() -> Result<()> {
         .interact_text()?;
 
     // Default collections
-    // We could make this a MultiSelect if we had names, but for now just input or keep default logic?
-    // Let's offer to edit collections as comma separated string?
     let collections_str = app_data.config.collections.join(",");
     let collections_input: String = Input::new()
         .with_prompt("Unsplash Collection IDs (comma separated)")
@@ -56,6 +54,17 @@ pub fn init_wizard() -> Result<()> {
         println!("ℹ️ Autostart disabled.");
     }
 
+    // Add to PATH
+    if cfg!(target_os = "windows") {
+        if Confirm::new()
+            .with_prompt("Add Wallp directory to system PATH?")
+            .default(true)
+            .interact()? 
+        {
+            add_to_path_windows()?;
+        }
+    }
+
     println!("✅ Configuration saved!");
     
     // Launch Tray App
@@ -64,6 +73,48 @@ pub fn init_wizard() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn add_to_path_windows() -> Result<()> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let current_exe = env::current_exe()?;
+    let install_dir = current_exe.parent().context("Failed to get executable directory")?;
+    let install_dir_str = install_dir.to_str().context("Invalid path")?;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (env, _) = hkcu.create_subkey("Environment")?; // Create or open
+    let path_val: String = env.get_value("Path").unwrap_or_default();
+
+    // Check if already in PATH
+    let paths: Vec<&str> = path_val.split(';').collect();
+    if paths.iter().any(|p| p.eq_ignore_ascii_case(install_dir_str)) {
+        println!("ℹ️ Directory already in PATH.");
+        return Ok(());
+    }
+
+    // Append
+    let new_path = if path_val.is_empty() {
+        install_dir_str.to_string()
+    } else {
+        format!("{};{}", path_val, install_dir_str)
+    };
+
+    env.set_value("Path", &new_path)?;
+    println!("✅ Added {} to PATH. Restart your terminal to see changes.", install_dir_str);
+    
+    // Notify system of env change (broadcast WM_SETTINGCHANGE)
+    // This requires unsafe code and user32.dll, skipping for simplicity/safety unless requested.
+    // Standard practice is to tell user to restart terminal.
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn add_to_path_windows() -> Result<()> {
+    Ok(()) // No-op for now on non-windows
 }
 
 fn setup_autostart(enable: bool) -> Result<()> {
@@ -100,10 +151,6 @@ fn start_background_process() -> Result<()> {
 }
 
 pub fn handle_command(cmd: &Commands) -> Result<()> {
-    // Create a tokio runtime for async commands if needed, 
-    // BUT main already has no runtime? 
-    // Wait, main.rs does NOT initialize a runtime. 
-    // We need to create one for async commands.
     
     let rt = tokio::runtime::Runtime::new().unwrap();
 

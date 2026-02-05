@@ -5,6 +5,7 @@ use tao::event_loop::{ControlFlow, EventLoop};
 use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, PredefinedMenuItem}};
 use tray_icon::menu::MenuEvent;
 use crate::config::AppData;
+use anyhow::Context;
 
 pub fn run() -> anyhow::Result<()> {
     // Single instance check
@@ -88,15 +89,13 @@ where
 }
 
 fn load_icon() -> anyhow::Result<tray_icon::Icon> {
-    // Generate a simple colored square icon programmatically to avoid file dependency for now
-    // 32x32 red square
-    let width = 32u32;
-    let height = 32u32;
-    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-    for _ in 0..width*height {
-        rgba.extend_from_slice(&[255, 0, 0, 255]); // Red
-    }
+    let icon_bytes = include_bytes!("../icon.ico");
+    let image = image::load_from_memory(icon_bytes)
+        .context("Failed to load embedded icon")?
+        .into_rgba8();
     
-    let icon = tray_icon::Icon::from_rgba(rgba, width, height)?;
+    let (width, height) = image.dimensions();
+    let icon = tray_icon::Icon::from_rgba(image.into_raw(), width, height)?;
     Ok(icon)
 }
+

@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use clap::Parser;
 
 mod cli;
@@ -52,7 +54,18 @@ enum ConfigAction {
 }
 
 fn main() -> anyhow::Result<()> {
-    // Initialize logging
+    // On Windows, if we are in GUI mode (no console), we need to attach to the parent console
+    // if we want to print to stdout (e.g. for CLI commands).
+    // If no parent console, we are likely double-clicked, so we stay silent.
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+        unsafe {
+            let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
+
+    // Initialize logging (File only mainly, but stdout if attached)
     let file_appender = tracing_appender::rolling::daily(
         directories::ProjectDirs::from("com", "user", "wallp")
             .unwrap()
@@ -62,7 +75,6 @@ fn main() -> anyhow::Result<()> {
     );
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
     
-    // Check if we are in TTY/Debug to print to stdout as well, otherwise just file
     let subscriber = tracing_subscriber::fmt()
         .with_writer(non_blocking)
         .with_ansi(false)
