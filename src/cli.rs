@@ -5,6 +5,9 @@ use anyhow::{Context, Result};
 use dialoguer::{Input, Confirm};
 use std::process::Command;
 use std::env;
+use std::ffi::CString;
+use windows::Win32::UI::WindowsAndMessaging::{SendMessageTimeoutA, HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG};
+use windows::Win32::Foundation::WPARAM;
 
 pub fn init_wizard() -> Result<()> {
     println!("Welcome to Wallp Setup Wizard!");
@@ -107,12 +110,30 @@ fn add_to_path_windows() -> Result<()> {
     };
 
     env.set_value("Path", &new_path)?;
-    println!("✅ Added {} to PATH. Restart your terminal to see changes.", install_dir_str);
+    println!("✅ Added {} to PATH.", install_dir_str);
     
-    // Notify system of env change (broadcast WM_SETTINGCHANGE)
-    // This requires unsafe code and user32.dll, skipping for simplicity/safety unless requested.
-    // Standard practice is to tell user to restart terminal.
+    let _ = broadcast_env_change();
+    println!("ℹ️ System notified of PATH change.");
 
+    Ok(())
+}
+
+fn broadcast_env_change() -> Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        let param = CString::new("Environment").unwrap();
+        unsafe {
+            let _ = SendMessageTimeoutA(
+                HWND_BROADCAST,
+                WM_SETTINGCHANGE,
+                WPARAM(0),
+                windows::Win32::Foundation::LPARAM(param.as_ptr() as isize),
+                SMTO_ABORTIFHUNG,
+                5000,
+                None,
+            );
+        }
+    }
     Ok(())
 }
 
@@ -216,7 +237,102 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
             for (i, w) in data.history.iter().rev().take(5).enumerate() {
                  println!("{}: {} by {}", i, w.title.clone().unwrap_or_default(), w.author.clone().unwrap_or_default());
             }
+        },
+        Commands::Uninstall => handle_uninstall()?,
+    }
+    Ok(())
+}
+fn handle_uninstall() -> Result<()> {
+    println!("⚠️  WARNING: This will remove Wallp from startup, delete all configuration/data, and remove it from PATH.");
+    
+    if !Confirm::new()
+        .with_prompt("Are you sure you want to uninstall Wallp?")
+        .default(false)
+        .interact()?
+    {
+        println!("Uninstall cancelled.");
+        return Ok(());
+    }
+
+    println!("Stopping background processes...");
+    // Kill other wallp instances (Tray app)
+    // Filter out our own PID so we don't commit suicide before finishing
+    let my_pid = std::process::id();
+    if cfg!(target_os = "windows") {
+        let _ = Command::new("taskkill")
+            .args(&["/F", "/IM", "wallp.exe", "/FI", &format!("PID ne {}", my_pid)])
+            .output(); // Ignore errors (e.g. if no process running)
+    }
+
+    println!("Removing from startup...");
+    if let Err(e) = setup_autostart(false) {
+        println!("⚠️  Failed to remove from startup: {}", e);
+    }
+
+    println!("Removing data and configuration...");
+    if let Some(proj_dirs) = directories::ProjectDirs::from("com", "user", "wallp") {
+        let data_dir = proj_dirs.data_dir();
+        // The project directory usually contains data, config, and cache.
+        // On Windows it's ...\user\wallp
+        if let Some(project_root) = data_dir.parent() {
+            if project_root.exists() {
+                if let Err(e) = std::fs::remove_dir_all(project_root) {
+                    println!("⚠️  Failed to delete project directory: {}", e);
+                } else {
+                    println!("✅ Project directory deleted.");
+                }
+            }
+        } else if data_dir.exists() {
+            let _ = std::fs::remove_dir_all(data_dir);
+            println!("✅ Data directory deleted.");
         }
     }
+
+    println!("Removing from PATH...");
+    if cfg!(target_os = "windows") {
+        if let Err(e) = remove_from_path_windows() {
+             println!("⚠️  Failed to remove from PATH: {}", e);
+        }
+    }
+
+    println!("✅ Uninstall complete. You can now delete this executable.");
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn remove_from_path_windows() -> Result<()> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let current_exe = env::current_exe()?;
+    let install_dir = current_exe.parent().context("Failed to get executable directory")?;
+    let install_dir_str = install_dir.to_str().context("Invalid path")?;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (env, _) = hkcu.create_subkey("Environment")?;
+    let path_val: String = env.get_value("Path").unwrap_or_default();
+
+    let mut paths: Vec<&str> = path_val.split(';').collect();
+    let original_len = paths.len();
+    
+    // Remove all occurrences
+    paths.retain(|p| !p.eq_ignore_ascii_case(install_dir_str) && !p.is_empty());
+
+    if paths.len() == original_len {
+        println!("ℹ️ Directory was not in PATH.");
+        return Ok(());
+    }
+
+    let new_path = paths.join(";");
+    env.set_value("Path", &new_path)?;
+    println!("✅ Removed {} from PATH.", install_dir_str);
+
+    let _ = broadcast_env_change();
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn remove_from_path_windows() -> Result<()> {
     Ok(())
 }

@@ -6,6 +6,7 @@ use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, CheckMenuItem, Predefine
 use tray_icon::menu::MenuEvent;
 use crate::config::AppData;
 use anyhow::Context;
+use notify_rust::Notification;
 
 pub fn run() -> anyhow::Result<()> {
     // Single instance check
@@ -34,6 +35,7 @@ pub fn run() -> anyhow::Result<()> {
     let item_next = MenuItem::new("⏭️ Next", true, None);
     let item_prev = MenuItem::new("⏮️ Previous", true, None);
     let item_folder = MenuItem::new("📂 Open Folder", true, None);
+    let item_config = MenuItem::new("⚙️ Open Config", true, None);
     let item_quit = MenuItem::new("❌ Quit", true, None);
 
     tray_menu.append_items(&[
@@ -42,6 +44,7 @@ pub fn run() -> anyhow::Result<()> {
         &item_prev,
         &PredefinedMenuItem::separator(),
         &item_folder,
+        &item_config,
         &PredefinedMenuItem::separator(),
         &item_autostart,
         &PredefinedMenuItem::separator(),
@@ -72,12 +75,20 @@ pub fn run() -> anyhow::Result<()> {
                 spawn_oneshot(|| manager::new());
             } else if event.id == item_folder.id() {
                 let _ = open::that(AppData::get_data_dir().unwrap().join("wallpapers"));
+            } else if event.id == item_config.id() {
+                 if let Ok(path) = AppData::get_config_path() {
+                     let _ = open::that(path);
+                 }
             } else if event.id == item_autostart.id() {
                 let is_enabled = item_autostart.is_checked();
                 if let Err(e) = crate::cli::setup_autostart(is_enabled) {
                     tracing::error!("Failed to toggle autostart: {}", e);
                     // Revert check state if failed
                     item_autostart.set_checked(!is_enabled);
+                     let _ = Notification::new()
+                        .summary("Wallp Error")
+                        .body(&format!("Failed to toggle autostart: {}", e))
+                        .show();
                 }
             }
         }
@@ -109,6 +120,10 @@ where
         let rt = tokio::runtime::Runtime::new().unwrap();
         if let Err(e) = rt.block_on(f()) {
             tracing::error!("Tray action error: {}", e);
+            let _ = Notification::new()
+                .summary("Wallp Error")
+                .body(&e.to_string())
+                .show();
         }
     });
 }

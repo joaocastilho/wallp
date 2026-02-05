@@ -37,7 +37,7 @@ impl UnsplashClient {
     pub fn new(access_key: String) -> Self {
         Self {
             client: reqwest::Client::new(),
-            access_key,
+            access_key: access_key.trim().to_string(),
         }
     }
 

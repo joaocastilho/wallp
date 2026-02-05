@@ -27,6 +27,8 @@ pub async fn prev() -> Result<()> {
         let wallpaper = &app_data.history[app_data.state.current_history_index];
         set_wallpaper_from_history(&wallpaper, &app_data)?;
         app_data.save()?;
+    } else {
+        anyhow::bail!("No previous wallpaper available");
     }
     
     Ok(())

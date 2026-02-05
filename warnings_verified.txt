@@ -1,2 +1,0 @@
-   Compiling wallp v0.1.0 (C:\home\code\wallp)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.81s
