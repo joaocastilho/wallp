@@ -270,21 +270,14 @@ fn handle_uninstall() -> Result<()> {
     }
 
     println!("Removing data and configuration...");
-    if let Some(proj_dirs) = directories::ProjectDirs::from("com", "user", "wallp") {
+    if let Some(proj_dirs) = directories::ProjectDirs::from("", "", "wallp") {
         let data_dir = proj_dirs.data_dir();
-        // The project directory usually contains data, config, and cache.
-        // On Windows it's ...\user\wallp
-        if let Some(project_root) = data_dir.parent() {
-            if project_root.exists() {
-                if let Err(e) = std::fs::remove_dir_all(project_root) {
-                    println!("⚠️  Failed to delete project directory: {}", e);
-                } else {
-                    println!("✅ Project directory deleted.");
-                }
+        if data_dir.exists() {
+            if let Err(e) = std::fs::remove_dir_all(data_dir) {
+                println!("⚠️  Failed to delete data directory: {}", e);
+            } else {
+                println!("✅ Data directory deleted.");
             }
-        } else if data_dir.exists() {
-            let _ = std::fs::remove_dir_all(data_dir);
-            println!("✅ Data directory deleted.");
         }
     }
 

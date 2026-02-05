@@ -86,7 +86,7 @@ fn main() -> anyhow::Result<()> {
 
     if !is_uninstall {
         let file_appender = tracing_appender::rolling::daily(
-            directories::ProjectDirs::from("com", "user", "wallp")
+            directories::ProjectDirs::from("", "", "wallp")
                 .unwrap()
                 .data_dir()
                 .join("logs"),
