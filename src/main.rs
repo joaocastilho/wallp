@@ -61,7 +61,12 @@ fn main() -> anyhow::Result<()> {
     {
         use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
         unsafe {
-            let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+            if AttachConsole(ATTACH_PARENT_PROCESS).is_ok() {
+                // If we attached to a console, we should ensure stdout/stderr/stdin are usable.
+                // Rust's stdio handles might not be automatically updated when attaching later.
+                // However, for dialoguer and basic println, this often suffices if we don't
+                // force them into a specific state before attaching.
+            }
         }
     }
 

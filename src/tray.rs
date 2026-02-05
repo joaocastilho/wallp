@@ -2,7 +2,7 @@ use crate::manager;
 use crate::scheduler;
 use tao::event_loop::{ControlFlow, EventLoop};
 // use tao::platform::windows::EventLoopBuilderExtWindows; // Not needed if standard new works
-use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, PredefinedMenuItem}};
+use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, CheckMenuItem, PredefinedMenuItem}};
 use tray_icon::menu::MenuEvent;
 use crate::config::AppData;
 use anyhow::Context;
@@ -26,6 +26,10 @@ pub fn run() -> anyhow::Result<()> {
     // Menu Construction
     let tray_menu = Menu::new();
     
+    // Check Autostart Status
+    let autostart_enabled = check_autostart_status();
+
+    let item_autostart = CheckMenuItem::new("Run at Startup", autostart_enabled, true, None);
     let item_new = MenuItem::new("✨ New Wallpaper", true, None);
     let item_next = MenuItem::new("⏭️ Next", true, None);
     let item_prev = MenuItem::new("⏮️ Previous", true, None);
@@ -39,14 +43,12 @@ pub fn run() -> anyhow::Result<()> {
         &PredefinedMenuItem::separator(),
         &item_folder,
         &PredefinedMenuItem::separator(),
+        &item_autostart,
+        &PredefinedMenuItem::separator(),
         &item_quit,
     ])?;
 
     // Load Icon
-    // Ideally use embedded icon or load from file. 
-    // For simplicity, we need an RGBA icon buffer. 
-    // We will use a dummy icon or load one if available? 
-    // `tray-icon` requires `Icon` struct.
     let icon = load_icon()?;
 
     let _tray_icon = TrayIconBuilder::new()
@@ -70,10 +72,33 @@ pub fn run() -> anyhow::Result<()> {
                 spawn_oneshot(|| manager::new());
             } else if event.id == item_folder.id() {
                 let _ = open::that(AppData::get_data_dir().unwrap().join("wallpapers"));
+            } else if event.id == item_autostart.id() {
+                let is_enabled = item_autostart.is_checked();
+                if let Err(e) = crate::cli::setup_autostart(is_enabled) {
+                    tracing::error!("Failed to toggle autostart: {}", e);
+                    // Revert check state if failed
+                    item_autostart.set_checked(!is_enabled);
+                }
             }
         }
     });
 }
+
+fn check_autostart_status() -> bool {
+    if let Ok(current_exe) = std::env::current_exe() {
+       let auto = auto_launch::AutoLaunchBuilder::new()
+            .set_app_name("Wallp")
+            .set_app_path(current_exe.to_str().unwrap())
+            .set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent)
+            .build();
+        
+        if let Ok(a) = auto {
+            return a.is_enabled().unwrap_or(false);
+        }
+    }
+    false
+}
+
 
 fn spawn_oneshot<F, Fut>(f: F)
 where

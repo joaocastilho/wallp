@@ -11,29 +11,21 @@ pub struct UnsplashPhoto {
     pub urls: UnsplashUrls,
     pub user: UnsplashUser,
     pub links: UnsplashLinks,
-    pub width: u32,
-    pub height: u32,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UnsplashUrls {
-    pub raw: String,
     pub full: String,
-    pub regular: String,
-    pub small: String,
-    pub thumb: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UnsplashUser {
     pub name: String,
-    pub username: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UnsplashLinks {
     pub html: String,
-    pub download: String,
 }
 
 pub struct UnsplashClient {

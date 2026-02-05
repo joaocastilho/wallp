@@ -15,19 +15,22 @@ pub fn init_wizard() -> Result<()> {
     let access_key: String = Input::new()
         .with_prompt("Unsplash Access Key")
         .default(app_data.config.unsplash_access_key.clone())
-        .interact_text()?;
+        .interact()
+        .context("Failed to get access key")?;
 
     let interval: u64 = Input::new()
         .with_prompt("Update Interval (minutes)")
         .default(app_data.config.interval_minutes)
-        .interact_text()?;
+        .interact()
+        .context("Failed to get interval")?;
 
     // Default collections
     let collections_str = app_data.config.collections.join(",");
     let collections_input: String = Input::new()
         .with_prompt("Unsplash Collection IDs (comma separated)")
         .default(collections_str)
-        .interact_text()?;
+        .interact()
+        .context("Failed to get collections")?;
     
     let collections: Vec<String> = collections_input.split(',')
         .map(|s| s.trim().to_string())
@@ -37,7 +40,8 @@ pub fn init_wizard() -> Result<()> {
     let enable_autostart = Confirm::new()
         .with_prompt("Enable Autostart on Login?")
         .default(true)
-        .interact()?;
+        .interact()
+        .context("Failed to get autostart confirmation")?;
 
     // Update config
     app_data.config.unsplash_access_key = access_key;
@@ -117,23 +121,21 @@ fn add_to_path_windows() -> Result<()> {
     Ok(()) // No-op for now on non-windows
 }
 
-fn setup_autostart(enable: bool) -> Result<()> {
+pub fn setup_autostart(enable: bool) -> Result<()> {
     let current_exe = env::current_exe()?;
+    let app_path = current_exe.to_str().context("Failed to get executable path as string")?;
+    
     let auto = auto_launch::AutoLaunchBuilder::new()
         .set_app_name("Wallp")
-        .set_app_path(current_exe.to_str().unwrap())
-        .set_use_launch_agent(false) 
+        .set_app_path(app_path)
+        .set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent) 
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build auto_launch: {}", e))?;
 
     if enable {
-        if !auto.is_enabled().unwrap_or(false) {
-             auto.enable().map_err(|e| anyhow::anyhow!("Failed to enable autostart: {}", e))?;
-        }
+        auto.enable().map_err(|e| anyhow::anyhow!("Failed to enable autostart: {}", e))?;
     } else {
-        if auto.is_enabled().unwrap_or(false) {
-            auto.disable().map_err(|e| anyhow::anyhow!("Failed to disable autostart: {}", e))?;
-        }
+        auto.disable().map_err(|e| anyhow::anyhow!("Failed to disable autostart: {}", e))?;
     }
     Ok(())
 }

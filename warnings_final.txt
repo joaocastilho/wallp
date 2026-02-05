@@ -1,0 +1,21 @@
+   Compiling wallp v0.1.0 (C:\home\code\wallp)
+error[E0433]: failed to resolve: could not find `MacosLaunchMode` in `auto_launch`
+   --> src\cli.rs:131:45
+    |
+131 |         .set_macos_launch_mode(auto_launch::MacosLaunchMode::LaunchAgent) 
+    |                                             ^^^^^^^^^^^^^^^
+    |                                             |
+    |                                             could not find `MacosLaunchMode` in `auto_launch`
+    |                                             help: an enum with a similar name exists (notice the capitalization): `MacOSLaunchMode`
+
+error[E0433]: failed to resolve: could not find `MacosLaunchMode` in `auto_launch`
+  --> src\tray.rs:92:49
+   |
+92 |             .set_macos_launch_mode(auto_launch::MacosLaunchMode::LaunchAgent)
+   |                                                 ^^^^^^^^^^^^^^^
+   |                                                 |
+   |                                                 could not find `MacosLaunchMode` in `auto_launch`
+   |                                                 help: an enum with a similar name exists (notice the capitalization): `MacOSLaunchMode`
+
+For more information about this error, try `rustc --explain E0433`.
+error: could not compile `wallp` (bin "wallp") due to 2 previous errors
