@@ -11,6 +11,12 @@ pub async fn next() -> Result<()> {
         app_data.state.current_history_index += 1;
         let wallpaper = &app_data.history[app_data.state.current_history_index];
         set_wallpaper_from_history(&wallpaper, &app_data)?;
+        
+        // IMPORTANT: Update next_run calculation to prevent immediate re-triggering
+        // if we are just browsing history.
+        let next_run = Utc::now() + chrono::Duration::minutes(app_data.config.interval_minutes as i64);
+        app_data.state.next_run_at = next_run.to_rfc3339();
+        
         app_data.save()?;
         return Ok(());
     }

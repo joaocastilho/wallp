@@ -82,9 +82,9 @@ impl Default for AppData {
 
 impl AppData {
     pub fn get_data_dir() -> anyhow::Result<PathBuf> {
-        let proj_dirs = directories::ProjectDirs::from("", "", "wallp")
-            .context("Could not determine config directory")?;
-        Ok(proj_dirs.data_dir().to_path_buf())
+        let base_dirs = directories::BaseDirs::new()
+            .context("Could not determine base directories")?;
+        Ok(base_dirs.config_dir().join("wallp"))
     }
 
     pub fn get_config_path() -> anyhow::Result<PathBuf> {

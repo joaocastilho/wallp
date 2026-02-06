@@ -13,23 +13,22 @@ mod unsplash;
 
 #[cfg(target_os = "windows")]
 mod win_utils {
-    use windows::Win32::System::Console::{GetConsoleProcessList, GetConsoleWindow};
-    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+    use windows::Win32::System::Console::GetConsoleProcessList;
+    use windows::Win32::System::Console::FreeConsole;
 
     pub fn is_launched_from_terminal() -> bool {
         let mut pids = [0u32; 1];
         let count = unsafe { GetConsoleProcessList(&mut pids) };
-        // If count > 1, it means there are other processes (like cmd.exe or powershell.exe)
-        // attached to this console.
         count > 1
     }
 
-    pub fn hide_console_window() {
-        let window = unsafe { GetConsoleWindow() };
-        if !window.is_invalid() {
-            unsafe {
-                let _ = ShowWindow(window, SW_HIDE);
-            }
+    pub fn detach_console() {
+        unsafe {
+            // Detach this process from the current console window.
+            // This effectively makes the console disappearance "permanent" for this process,
+            // preventing it from closing if the original console is closed (if started from there)
+            // or just removing the window if it spawned one.
+            let _ = FreeConsole();
         }
     }
 }
@@ -92,9 +91,10 @@ fn main() -> anyhow::Result<()> {
 
     if !is_uninstall {
         let file_appender = tracing_appender::rolling::daily(
-            directories::ProjectDirs::from("", "", "wallp")
+            directories::BaseDirs::new()
                 .unwrap()
-                .data_dir()
+                .config_dir()
+                .join("wallp")
                 .join("logs"),
             "wallp.log",
         );
@@ -121,7 +121,7 @@ fn main() -> anyhow::Result<()> {
             }
 
             #[cfg(target_os = "windows")]
-            win_utils::hide_console_window();
+            win_utils::detach_console();
 
             tray::run()?;
         },
