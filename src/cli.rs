@@ -6,12 +6,54 @@ use dialoguer::{Input, Confirm};
 use std::process::Command;
 use std::env;
 use std::ffi::CString;
+use std::fs;
+use std::path::{Path, PathBuf};
 use windows::Win32::UI::WindowsAndMessaging::{SendMessageTimeoutA, HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG};
 use windows::Win32::Foundation::WPARAM;
 
 pub fn init_wizard() -> Result<()> {
     println!("Welcome to Wallp Setup Wizard!");
     println!("------------------------------");
+
+    let current_exe = env::current_exe()?;
+    let data_dir = AppData::get_data_dir()?;
+    
+    // Ensure data directory exists
+    if !data_dir.exists() {
+        fs::create_dir_all(&data_dir).context("Failed to create data directory")?;
+    }
+    
+    let target_exe = data_dir.join("wallp.exe");
+
+    // Copy to AppData if not already there
+    // We check if paths are different. 
+    // canonicalize() can help if symlinks or relative paths issues, but simple comparison should work for most cases.
+    let is_installed = if let (Ok(c), Ok(t)) = (current_exe.canonicalize(), target_exe.canonicalize()) {
+        c == t
+    } else {
+        // Fallback or file doesn't exist yet
+        false
+    };
+
+    let final_exe_path = if !is_installed {
+        println!("Installing Wallp to {}", target_exe.display());
+        // Copy current exe to target
+        // We might fail if target is running (shouldn't be, if we are in init)
+        // or permission issues.
+        match fs::copy(&current_exe, &target_exe) {
+            Ok(_) => {
+                println!("✅ Copied executable to AppData.");
+                target_exe
+            },
+            Err(e) => {
+                println!("⚠️  Failed to copy executable: {}. Proceeding with current executable.", e);
+                current_exe
+            }
+        }
+    } else {
+        println!("ℹ️  Already running from installation directory.");
+        current_exe
+    };
 
     let mut app_data = AppData::load()?; // Load existing or default
 
@@ -54,10 +96,10 @@ pub fn init_wizard() -> Result<()> {
 
     // Setup Autostart
     if enable_autostart {
-        setup_autostart(true)?;
+        setup_autostart(true, &final_exe_path)?;
         println!("✅ Autostart enabled.");
     } else {
-        setup_autostart(false)?;
+        setup_autostart(false, &final_exe_path)?;
         println!("ℹ️ Autostart disabled.");
     }
 
@@ -68,27 +110,30 @@ pub fn init_wizard() -> Result<()> {
             .default(true)
             .interact()? 
         {
-            add_to_path_windows()?;
+            add_to_path_windows(&final_exe_path)?;
         }
     }
 
     println!("✅ Configuration saved!");
+    if !is_installed && final_exe_path != env::current_exe()? {
+         println!("ℹ️  You can safely delete this executable and the downloaded file.");
+         println!("ℹ️  Wallp is now installed at: {}", final_exe_path.display());
+    }
     
     // Launch Tray App
     if Confirm::new().with_prompt("Start Wallp now?").default(true).interact()? {
-        start_background_process()?;
+        start_background_process(&final_exe_path)?;
     }
 
     Ok(())
 }
 
 #[cfg(target_os = "windows")]
-fn add_to_path_windows() -> Result<()> {
+fn add_to_path_windows(exe_path: &Path) -> Result<()> {
     use winreg::enums::*;
     use winreg::RegKey;
 
-    let current_exe = env::current_exe()?;
-    let install_dir = current_exe.parent().context("Failed to get executable directory")?;
+    let install_dir = exe_path.parent().context("Failed to get executable directory")?;
     let install_dir_str = install_dir.to_str().context("Invalid path")?;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -138,13 +183,12 @@ fn broadcast_env_change() -> Result<()> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn add_to_path_windows() -> Result<()> {
+fn add_to_path_windows(_exe_path: &Path) -> Result<()> {
     Ok(()) // No-op for now on non-windows
 }
 
-pub fn setup_autostart(enable: bool) -> Result<()> {
-    let current_exe = env::current_exe()?;
-    let app_path = current_exe.to_str().context("Failed to get executable path as string")?;
+pub fn setup_autostart(enable: bool, exe_path: &Path) -> Result<()> {
+    let app_path = exe_path.to_str().context("Failed to get executable path as string")?;
     
     let auto = auto_launch::AutoLaunchBuilder::new()
         .set_app_name("Wallp")
@@ -161,9 +205,8 @@ pub fn setup_autostart(enable: bool) -> Result<()> {
     Ok(())
 }
 
-fn start_background_process() -> Result<()> {
-    let current_exe = env::current_exe()?;
-    let mut cmd = Command::new(current_exe);
+fn start_background_process(exe_path: &Path) -> Result<()> {
+    let mut cmd = Command::new(exe_path);
     
     // Detach process on Windows to ensure it survives console close and doesn't inherit console
     #[cfg(target_os = "windows")]
@@ -249,6 +292,7 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
     }
     Ok(())
 }
+
 fn handle_uninstall() -> Result<()> {
     println!("⚠️  WARNING: This will remove Wallp from startup, delete all configuration/data, and remove it from PATH.");
     
@@ -263,33 +307,27 @@ fn handle_uninstall() -> Result<()> {
 
     println!("Stopping background processes...");
     // Kill other wallp instances (Tray app)
-    // Filter out our own PID so we don't commit suicide before finishing
     let my_pid = std::process::id();
     if cfg!(target_os = "windows") {
         let _ = Command::new("taskkill")
             .args(&["/F", "/IM", "wallp.exe", "/FI", &format!("PID ne {}", my_pid)])
-            .output(); // Ignore errors (e.g. if no process running)
+            .output(); 
     }
 
     println!("Removing from startup...");
-    if let Err(e) = setup_autostart(false) {
-        println!("⚠️  Failed to remove from startup: {}", e);
-    }
-
-    println!("Removing data and configuration...");
-// Duplicate print removed
-    // Use AppData to get the correct path (roaming/wallp)
+    // We try to remove whatever registered path implies. 
+    // AutoLaunch typically keys off app name, but we might have registered different paths?
+    // Let's assume current exe path or installed path.
+    // If we installed to AppData, we should point there.
     if let Ok(data_dir) = AppData::get_data_dir() {
-        // Also remove parent if it's strictly our domain? 
-        // AppData::get_data_dir returns .../Roaming/wallp
-        // Removing that removes everything.
-        if data_dir.exists() {
-            if let Err(e) = std::fs::remove_dir_all(&data_dir) {
-                println!("⚠️  Failed to delete data directory: {}", e);
-            } else {
-                println!("✅ Data directory deleted.");
-            }
+        let installed_exe = data_dir.join("wallp.exe");
+        if let Err(e) = setup_autostart(false, &installed_exe) {
+             println!("⚠️  Failed to remove installed autostart: {}", e);
         }
+    }
+    // Also try current exe just in case
+    if let Ok(current_exe) = env::current_exe() {
+        let _ = setup_autostart(false, &current_exe);
     }
 
     println!("Removing from PATH...");
@@ -299,7 +337,41 @@ fn handle_uninstall() -> Result<()> {
         }
     }
 
-    println!("✅ Uninstall complete. You can now delete this executable.");
+    println!("Removing data and configuration...");
+    let data_dir = AppData::get_data_dir()?;
+    // We can't delete the directory if we are running from it.
+    let current_exe = env::current_exe()?;
+    let is_running_from_install = current_exe.starts_with(&data_dir);
+
+    if is_running_from_install {
+        // Self-delete mechanism
+        println!("ℹ️  Running from installation directory. Initiating self-destruct sequence...");
+        
+        let batch_command = format!(
+            "ping 127.0.0.1 -n 3 > nul & del /F /Q \"{}\" & rmdir /S /Q \"{}\"",
+            current_exe.display(),
+            data_dir.display()
+        );
+
+        Command::new("cmd")
+            .args(&["/C", &batch_command])
+            .spawn()
+            .context("Failed to spawn self-delete command")?;
+            
+        println!("✅ Uninstall scheduled. The application will close and delete itself in a few seconds.");
+        std::process::exit(0);
+    } else {
+        // Normal delete
+        if data_dir.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&data_dir) {
+                println!("⚠️  Failed to delete data directory: {}", e);
+            } else {
+                println!("✅ Data directory deleted.");
+            }
+        }
+        println!("✅ Uninstall complete. You can now delete this executable.");
+    }
+
     Ok(())
 }
 
@@ -308,9 +380,13 @@ fn remove_from_path_windows() -> Result<()> {
     use winreg::enums::*;
     use winreg::RegKey;
 
+    // Remove BOTH current dir and installed dir if present, just to be sure
     let current_exe = env::current_exe()?;
-    let install_dir = current_exe.parent().context("Failed to get executable directory")?;
-    let install_dir_str = install_dir.to_str().context("Invalid path")?;
+    let current_dir = current_exe.parent().unwrap_or_else(|| Path::new(""));
+    
+    let data_dir = AppData::get_data_dir()?; // roaming/wallp
+
+    let paths_to_remove = vec![current_dir.to_path_buf(), data_dir];
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (env, _) = hkcu.create_subkey("Environment")?;
@@ -319,8 +395,10 @@ fn remove_from_path_windows() -> Result<()> {
     let mut paths: Vec<&str> = path_val.split(';').collect();
     let original_len = paths.len();
     
-    // Remove all occurrences
-    paths.retain(|p| !p.eq_ignore_ascii_case(install_dir_str) && !p.is_empty());
+    paths.retain(|p| {
+        let p_path = PathBuf::from(p);
+        !paths_to_remove.iter().any(|r| p_path == *r || p.eq_ignore_ascii_case(r.to_str().unwrap_or(""))) && !p.is_empty()
+    });
 
     if paths.len() == original_len {
         println!("ℹ️ Directory was not in PATH.");
@@ -329,7 +407,7 @@ fn remove_from_path_windows() -> Result<()> {
 
     let new_path = paths.join(";");
     env.set_value("Path", &new_path)?;
-    println!("✅ Removed {} from PATH.", install_dir_str);
+    println!("✅ Removed from PATH.");
 
     let _ = broadcast_env_change();
 

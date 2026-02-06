@@ -81,7 +81,14 @@ pub fn run() -> anyhow::Result<()> {
                  }
             } else if event.id == item_autostart.id() {
                 let is_enabled = item_autostart.is_checked();
-                if let Err(e) = crate::cli::setup_autostart(is_enabled) {
+                // Get current exe for autostart path
+                let result = if let Ok(exe_path) = std::env::current_exe() {
+                    crate::cli::setup_autostart(is_enabled, &exe_path)
+                } else {
+                    Err(anyhow::anyhow!("Failed to determine current executable"))
+                };
+
+                if let Err(e) = result {
                     tracing::error!("Failed to toggle autostart: {}", e);
                     // Revert check state if failed
                     item_autostart.set_checked(!is_enabled);
