@@ -43,6 +43,8 @@ pub fn init_wizard() -> Result<()> {
         match fs::copy(&current_exe, &target_exe) {
             Ok(_) => {
                 println!("✅ Copied executable to AppData.");
+                // Give the filesystem a moment to settle/scan the new file so metadata is available for reading
+                std::thread::sleep(std::time::Duration::from_millis(500));
                 target_exe
             },
             Err(e) => {
@@ -54,6 +56,10 @@ pub fn init_wizard() -> Result<()> {
         println!("ℹ️  Already running from installation directory.");
         current_exe
     };
+
+    // Canonicalize the final path to ensure we have the absolute system path.
+    // This helps with registry keys and ensuring the file is correctly identified.
+    let final_exe_path = final_exe_path.canonicalize().unwrap_or(final_exe_path);
 
     let mut app_data = AppData::load()?; // Load existing or default
 

@@ -90,14 +90,18 @@ fn main() -> anyhow::Result<()> {
     let is_uninstall = args.iter().any(|arg| arg == "uninstall");
 
     if !is_uninstall {
-        let file_appender = tracing_appender::rolling::daily(
-            directories::BaseDirs::new()
-                .unwrap()
-                .config_dir()
-                .join("wallp")
-                .join("logs"),
-            "wallp.log",
-        );
+        let file_appender = tracing_appender::rolling::Builder::new()
+            .rotation(tracing_appender::rolling::Rotation::DAILY)
+            .filename_prefix("wallp")
+            .filename_suffix("log")
+            .build(
+                directories::BaseDirs::new()
+                    .unwrap()
+                    .config_dir()
+                    .join("wallp")
+                    .join("logs")
+            )
+            .expect("failed to initialize rolling file appender");
         let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
         
         let subscriber = tracing_subscriber::fmt()
