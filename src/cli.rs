@@ -163,10 +163,17 @@ pub fn setup_autostart(enable: bool) -> Result<()> {
 
 fn start_background_process() -> Result<()> {
     let current_exe = env::current_exe()?;
+    let mut cmd = Command::new(current_exe);
     
-    // Spawn detached process
-    Command::new(current_exe)
-        .spawn()
+    // Detach process on Windows to ensure it survives console close and doesn't inherit console
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x00000008;
+        cmd.creation_flags(DETACHED_PROCESS);
+    }
+
+    cmd.spawn()
         .context("Failed to start background process")?;
         
     println!("🚀 Wallp started in background.");
@@ -270,10 +277,14 @@ fn handle_uninstall() -> Result<()> {
     }
 
     println!("Removing data and configuration...");
-    if let Some(proj_dirs) = directories::ProjectDirs::from("", "", "wallp") {
-        let data_dir = proj_dirs.data_dir();
+// Duplicate print removed
+    // Use AppData to get the correct path (roaming/wallp)
+    if let Ok(data_dir) = AppData::get_data_dir() {
+        // Also remove parent if it's strictly our domain? 
+        // AppData::get_data_dir returns .../Roaming/wallp
+        // Removing that removes everything.
         if data_dir.exists() {
-            if let Err(e) = std::fs::remove_dir_all(data_dir) {
+            if let Err(e) = std::fs::remove_dir_all(&data_dir) {
                 println!("⚠️  Failed to delete data directory: {}", e);
             } else {
                 println!("✅ Data directory deleted.");
