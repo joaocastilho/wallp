@@ -24,15 +24,14 @@ pub fn init_wizard() -> Result<()> {
     let is_initialized = data_dir.exists() && AppData::get_config_path()?.exists();
 
     // If already initialized, confirm before overwriting
-    if is_initialized {
-        if !Confirm::new()
+    if is_initialized
+        && !Confirm::new()
             .with_prompt("Wallp appears to be already installed. Run setup anyway?")
             .default(false)
             .interact()?
-        {
-            println!("Setup cancelled.");
-            return Ok(());
-        }
+    {
+        println!("Setup cancelled.");
+        return Ok(());
     }
 
     // Ensure data directory exists
@@ -57,7 +56,7 @@ pub fn init_wizard() -> Result<()> {
     let current_exe_canonical = current_exe.canonicalize().unwrap_or(current_exe.clone());
     let target_exe_canonical = target_exe.canonicalize().ok();
 
-    let is_installed = target_exe_canonical.map_or(false, |t| t == current_exe_canonical);
+    let is_installed = target_exe_canonical.is_some_and(|t| t == current_exe_canonical);
 
     let final_exe_path = if !is_installed {
         println!("Installing Wallp to {}", target_exe.display());
@@ -138,14 +137,13 @@ pub fn init_wizard() -> Result<()> {
     }
 
     // Add to PATH
-    if cfg!(target_os = "windows") {
-        if Confirm::new()
+    if cfg!(target_os = "windows")
+        && Confirm::new()
             .with_prompt("Add Wallp directory to system PATH?")
             .default(true)
             .interact()?
-        {
-            add_to_path_windows(&final_exe_path)?;
-        }
+    {
+        add_to_path_windows(&final_exe_path)?;
     }
 
     println!("✅ Configuration saved!");
@@ -368,11 +366,11 @@ fn handle_uninstall() -> Result<()> {
 
     println!("Stopping background processes...");
     // Kill other wallp instances (Tray app)
-    let my_pid = std::process::id();
     #[cfg(target_os = "windows")]
     {
+        let my_pid = std::process::id();
         let _ = Command::new("taskkill")
-            .args(&[
+            .args([
                 "/F",
                 "/IM",
                 "wallp.exe",
@@ -412,7 +410,8 @@ fn handle_uninstall() -> Result<()> {
     }
 
     println!("Removing from PATH...");
-    if cfg!(target_os = "windows") {
+    #[cfg(target_os = "windows")]
+    {
         if let Err(e) = remove_from_path_windows() {
             println!("⚠️  Failed to remove from PATH: {}", e);
         }
@@ -457,7 +456,7 @@ fn handle_uninstall() -> Result<()> {
                 exe_path
             );
             let _ = Command::new("powershell")
-                .args(&["-WindowStyle", "Hidden", "-Command", &ps_script])
+                .args(["-WindowStyle", "Hidden", "-Command", &ps_script])
                 .spawn();
         }
 
@@ -492,7 +491,7 @@ fn remove_from_path_windows() -> Result<()> {
 
     let data_dir = AppData::get_data_dir()?; // roaming/wallp
 
-    let paths_to_remove = vec![current_dir.to_path_buf(), data_dir];
+    let paths_to_remove = [current_dir.to_path_buf(), data_dir];
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (env, _) = hkcu.create_subkey("Environment")?;

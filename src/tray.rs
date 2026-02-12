@@ -93,11 +93,11 @@ pub fn run() -> ExitCode {
             if event.id == item_quit.id() {
                 *control_flow = ControlFlow::Exit;
             } else if event.id == item_next.id() {
-                spawn_oneshot(|| manager::next());
+                spawn_oneshot(manager::next);
             } else if event.id == item_prev.id() {
-                spawn_oneshot(|| manager::prev());
+                spawn_oneshot(manager::prev);
             } else if event.id == item_new.id() {
-                spawn_oneshot(|| manager::new());
+                spawn_oneshot(manager::new);
             } else if event.id == item_folder.id() {
                 let _ = open::that(AppData::get_data_dir().unwrap().join("wallpapers"));
             } else if event.id == item_config.id() {
