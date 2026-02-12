@@ -10,7 +10,7 @@ pub async fn next() -> Result<()> {
     if app_data.state.current_history_index < app_data.history.len().saturating_sub(1) {
         app_data.state.current_history_index += 1;
         let wallpaper = &app_data.history[app_data.state.current_history_index];
-        set_wallpaper_from_history(&wallpaper, &app_data)?;
+        set_wallpaper_from_history(wallpaper)?;
         
         // IMPORTANT: Update next_run calculation to prevent immediate re-triggering
         // if we are just browsing history.
@@ -31,7 +31,7 @@ pub async fn prev() -> Result<()> {
     if app_data.state.current_history_index > 0 {
         app_data.state.current_history_index -= 1;
         let wallpaper = &app_data.history[app_data.state.current_history_index];
-        set_wallpaper_from_history(&wallpaper, &app_data)?;
+        set_wallpaper_from_history(wallpaper)?;
         app_data.save()?;
     } else {
         anyhow::bail!("No previous wallpaper available");
@@ -46,7 +46,7 @@ pub async fn new() -> Result<()> {
 }
 
 // Ensure local file exists before setting
-fn set_wallpaper_from_history(wallpaper: &Wallpaper, _app_data: &AppData) -> Result<()> {
+fn set_wallpaper_from_history(wallpaper: &Wallpaper) -> Result<()> {
     let data_dir = AppData::get_data_dir()?;
     let path = data_dir.join("wallpapers").join(&wallpaper.filename);
     

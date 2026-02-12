@@ -95,3 +95,67 @@ impl UnsplashClient {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_unsplash_client_new() {
+        let client = UnsplashClient::new("test_key".to_string());
+        assert_eq!(client.access_key, "test_key");
+    }
+
+    #[test]
+    fn test_unsplash_client_new_trims_whitespace() {
+        let client = UnsplashClient::new("  test_key  ".to_string());
+        assert_eq!(client.access_key, "test_key");
+    }
+
+    #[test]
+    fn test_unsplash_photo_deserialization() {
+        let json = r#"{
+            "id": "abc123",
+            "description": "A beautiful sunset",
+            "alt_description": "Sunset over mountains",
+            "urls": {
+                "full": "https://example.com/full.jpg"
+            },
+            "user": {
+                "name": "John Doe"
+            },
+            "links": {
+                "html": "https://unsplash.com/photos/abc123"
+            }
+        }"#;
+        
+        let photo: UnsplashPhoto = serde_json::from_str(json).unwrap();
+        assert_eq!(photo.id, "abc123");
+        assert_eq!(photo.description, Some("A beautiful sunset".to_string()));
+        assert_eq!(photo.alt_description, Some("Sunset over mountains".to_string()));
+        assert_eq!(photo.urls.full, "https://example.com/full.jpg");
+        assert_eq!(photo.user.name, "John Doe");
+        assert_eq!(photo.links.html, "https://unsplash.com/photos/abc123");
+    }
+
+    #[test]
+    fn test_unsplash_photo_optional_fields() {
+        let json = r#"{
+            "id": "abc123",
+            "urls": {
+                "full": "https://example.com/full.jpg"
+            },
+            "user": {
+                "name": "John Doe"
+            },
+            "links": {
+                "html": "https://unsplash.com/photos/abc123"
+            }
+        }"#;
+        
+        let photo: UnsplashPhoto = serde_json::from_str(json).unwrap();
+        assert_eq!(photo.id, "abc123");
+        assert_eq!(photo.description, None);
+        assert_eq!(photo.alt_description, None);
+    }
+}

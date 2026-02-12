@@ -3,17 +3,25 @@ use crate::manager;
 use crate::scheduler;
 use anyhow::Context;
 use notify_rust::Notification;
+use std::process::ExitCode;
+use tao::event_loop::{ControlFlow, EventLoop};
 use tray_icon::menu::MenuEvent;
 use tray_icon::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     TrayIconBuilder,
 };
 
-pub fn run() -> anyhow::Result<()> {
+pub fn run() -> ExitCode {
     // Single instance check
-    let instance = single_instance::SingleInstance::new("wallp_tray_instance")?;
+    let instance = match single_instance::SingleInstance::new("wallp_tray_instance") {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("Failed to create single instance: {}", e);
+            return ExitCode::FAILURE;
+        }
+    };
     if !instance.is_single() {
-        return Ok(()); // Silently exit if already running
+        return ExitCode::SUCCESS; // Silently exit if already running
     }
 
     // Spawn Tokio Runtime for async tasks
@@ -39,7 +47,7 @@ pub fn run() -> anyhow::Result<()> {
     let item_config = MenuItem::new("Open Config", true, None);
     let item_quit = MenuItem::new("Quit", true, None);
 
-    tray_menu.append_items(&[
+    if let Err(e) = tray_menu.append_items(&[
         &item_new,
         &item_next,
         &item_prev,
@@ -50,18 +58,34 @@ pub fn run() -> anyhow::Result<()> {
         &item_autostart,
         &PredefinedMenuItem::separator(),
         &item_quit,
-    ])?;
+    ]) {
+        eprintln!("Failed to create tray menu: {}", e);
+        return ExitCode::FAILURE;
+    }
 
     // Load Icon
-    let icon = load_icon()?;
+    let icon = match load_icon() {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("Failed to load icon: {}", e);
+            return ExitCode::FAILURE;
+        }
+    };
 
-    let _tray_icon = TrayIconBuilder::new()
+    let _tray_icon = match TrayIconBuilder::new()
         .with_menu(Box::new(tray_menu))
         .with_tooltip("Wallp")
         .with_icon(icon)
-        .build()?;
+        .build()
+    {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Failed to create tray icon: {}", e);
+            return ExitCode::FAILURE;
+        }
+    };
 
-    // Event Loop
+    // Event Loop (runs forever until exit)
     event_loop.run(move |_event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 

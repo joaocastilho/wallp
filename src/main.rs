@@ -3,6 +3,7 @@
 
 
 use clap::Parser;
+use std::process::ExitCode;
 
 mod cli;
 mod config;
@@ -79,7 +80,7 @@ enum ConfigAction {
     Set { key: String, value: String },
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> ExitCode {
     #[cfg(target_os = "windows")]
     let in_terminal = win_utils::is_launched_from_terminal();
     #[cfg(not(target_os = "windows"))]
@@ -89,21 +90,34 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Some(Commands::Init) => cli::init_wizard()?,
-        Some(cmd) => cli::handle_command(cmd)?,
+        Some(Commands::Init) => {
+            if let Err(e) = cli::init_wizard() {
+                eprintln!("Error: {}", e);
+                return ExitCode::FAILURE;
+            }
+        }
+        Some(cmd) => {
+            if let Err(e) = cli::handle_command(cmd) {
+                eprintln!("Error: {}", e);
+                return ExitCode::FAILURE;
+            }
+        }
         None => {
             if in_terminal {
                 use clap::CommandFactory;
-                Cli::command().print_help()?;
-                return Ok(());
+                if let Err(e) = Cli::command().print_help() {
+                    eprintln!("Error: {}", e);
+                    return ExitCode::FAILURE;
+                }
+                return ExitCode::SUCCESS;
             }
 
             #[cfg(target_os = "windows")]
             win_utils::detach_console();
 
-            tray::run()?;
+            return tray::run();
         },
     }
 
-    Ok(())
+    ExitCode::SUCCESS
 }
