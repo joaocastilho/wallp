@@ -32,6 +32,9 @@ tray = []
 default = ["tray"]
 
 [build-dependencies]
+winres = { version = "0.1.12", optional = true }
+
+[target.'cfg(windows)'.build-dependencies]
 winres = "0.1.12"
 
 [dev-dependencies]

@@ -40,7 +40,18 @@ pub fn init_wizard() -> Result<()> {
         fs::create_dir_all(&data_dir).context("Failed to create data directory")?;
     }
 
-    let target_exe = data_dir.join("wallp.exe");
+    fn get_exe_name() -> &'static str {
+        #[cfg(target_os = "windows")]
+        {
+            "wallp.exe"
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            "wallp"
+        }
+    }
+
+    let target_exe = data_dir.join(get_exe_name());
 
     // Copy to AppData if not already there
     let current_exe_canonical = current_exe.canonicalize().unwrap_or(current_exe.clone());
@@ -358,7 +369,8 @@ fn handle_uninstall() -> Result<()> {
     println!("Stopping background processes...");
     // Kill other wallp instances (Tray app)
     let my_pid = std::process::id();
-    if cfg!(target_os = "windows") {
+    #[cfg(target_os = "windows")]
+    {
         let _ = Command::new("taskkill")
             .args(&[
                 "/F",
@@ -369,6 +381,14 @@ fn handle_uninstall() -> Result<()> {
             ])
             .output();
     }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = Command::new("pkill").args(&["-f", "wallp"]).output();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = Command::new("pkill").args(&["-f", "wallp"]).output();
+    }
 
     println!("Removing from startup...");
     // We try to remove whatever registered path implies.
@@ -376,7 +396,12 @@ fn handle_uninstall() -> Result<()> {
     // Let's assume current exe path or installed path.
     // If we installed to AppData, we should point there.
     if let Ok(data_dir) = AppData::get_data_dir() {
-        let installed_exe = data_dir.join("wallp.exe");
+        let exe_name = if cfg!(target_os = "windows") {
+            "wallp.exe"
+        } else {
+            "wallp"
+        };
+        let installed_exe = data_dir.join(exe_name);
         if let Err(e) = setup_autostart(false, &installed_exe) {
             println!("⚠️  Failed to remove installed autostart: {}", e);
         }
@@ -420,18 +445,33 @@ fn handle_uninstall() -> Result<()> {
     }
 
     if is_running_from_install {
-        // Self-delete: spawn PowerShell to delete exe after we exit
+        // Self-delete: spawn to delete exe after we exit
         println!("ℹ️  Running from installation directory. Scheduling self-deletion...");
 
         let exe_path = current_exe.display().to_string();
-        let ps_script = format!(
-            r#"Start-Sleep -Seconds 2; Set-Location $env:TEMP; Remove-Item -Path "{}" -Force -ErrorAction SilentlyContinue"#,
-            exe_path
-        );
 
-        let _ = Command::new("powershell")
-            .args(&["-WindowStyle", "Hidden", "-Command", &ps_script])
-            .spawn();
+        #[cfg(target_os = "windows")]
+        {
+            let ps_script = format!(
+                r#"Start-Sleep -Seconds 2; Set-Location $env:TEMP; Remove-Item -Path "{}" -Force -ErrorAction SilentlyContinue"#,
+                exe_path
+            );
+            let _ = Command::new("powershell")
+                .args(&["-WindowStyle", "Hidden", "-Command", &ps_script])
+                .spawn();
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let script = format!("sleep 2 && rm -f \"{}\"", exe_path);
+            let _ = Command::new("sh").args(&["-c", &script]).spawn();
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            let script = format!("sleep 2 && rm -f \"{}\"", exe_path);
+            let _ = Command::new("sh").args(&["-c", &script]).spawn();
+        }
 
         println!("✅ Uninstall complete. The executable will be removed shortly.");
         std::process::exit(0);

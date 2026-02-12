@@ -159,7 +159,12 @@ where
 }
 
 fn load_icon() -> anyhow::Result<tray_icon::Icon> {
+    #[cfg(target_os = "windows")]
     let icon_bytes = include_bytes!("../icon.ico");
+
+    #[cfg(not(target_os = "windows"))]
+    let icon_bytes = include_bytes!("../icon.png");
+
     let image = image::load_from_memory(icon_bytes)
         .context("Failed to load embedded icon")?
         .into_rgba8();
