@@ -85,33 +85,7 @@ fn main() -> anyhow::Result<()> {
     #[cfg(not(target_os = "windows"))]
     let in_terminal = true; 
 
-    // Initialize logging
-    let args: Vec<String> = std::env::args().collect();
-    let is_uninstall = args.iter().any(|arg| arg == "uninstall");
-
-    if !is_uninstall {
-        let file_appender = tracing_appender::rolling::Builder::new()
-            .rotation(tracing_appender::rolling::Rotation::DAILY)
-            .filename_prefix("wallp")
-            .filename_suffix("log")
-            .build(
-                directories::BaseDirs::new()
-                    .unwrap()
-                    .config_dir()
-                    .join("wallp")
-                    .join("logs")
-            )
-            .expect("failed to initialize rolling file appender");
-        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-        
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(non_blocking)
-            .with_ansi(false)
-            .finish();
-            
-        tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
-    }
-
+    // Parse CLI first
     let cli = Cli::parse();
 
     match &cli.command {

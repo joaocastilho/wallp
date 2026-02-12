@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use anyhow::Context;
+use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppData {
@@ -18,7 +18,6 @@ pub struct Config {
     pub interval_minutes: u64,
     pub aspect_ratio_tolerance: f64,
     pub retention_days: u64,
-    pub logging_enabled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -45,15 +44,14 @@ impl Default for Config {
         Self {
             unsplash_access_key: String::new(),
             collections: vec![
-                "1053828".to_string(), // Nature
-                "3330448".to_string(), // Architecture
-                "327760".to_string(),  // Minimal
-                "894".to_string(),     // Travel
+                "1053828".to_string(),
+                "3330448".to_string(),
+                "327760".to_string(),
+                "894".to_string(),
             ],
-            interval_minutes: 120, // 2 hours
+            interval_minutes: 120,
             aspect_ratio_tolerance: 0.1,
             retention_days: 7,
-            logging_enabled: true,
         }
     }
 }
@@ -82,8 +80,8 @@ impl Default for AppData {
 
 impl AppData {
     pub fn get_data_dir() -> anyhow::Result<PathBuf> {
-        let base_dirs = directories::BaseDirs::new()
-            .context("Could not determine base directories")?;
+        let base_dirs =
+            directories::BaseDirs::new().context("Could not determine base directories")?;
         Ok(base_dirs.config_dir().join("wallp"))
     }
 
@@ -93,33 +91,28 @@ impl AppData {
 
     pub fn load() -> anyhow::Result<Self> {
         let path = Self::get_config_path()?;
-        
+
         if !path.exists() {
             return Ok(Self::default());
         }
 
-        let content = fs::read_to_string(&path)
-            .context("Failed to read wallp.json")?;
-            
-        let data: AppData = serde_json::from_str(&content)
-            .context("Failed to parse wallp.json")?;
-            
+        let content = fs::read_to_string(&path).context("Failed to read wallp.json")?;
+
+        let data: AppData = serde_json::from_str(&content).context("Failed to parse wallp.json")?;
+
         Ok(data)
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
         let path = Self::get_config_path()?;
         let dir = path.parent().context("Config path has no parent")?;
-        
-        fs::create_dir_all(dir)
-            .context("Failed to create config directory")?;
-            
-        let content = serde_json::to_string_pretty(self)
-            .context("Failed to serialize config")?;
-            
-        fs::write(&path, content)
-            .context("Failed to write wallp.json")?;
-            
+
+        fs::create_dir_all(dir).context("Failed to create config directory")?;
+
+        let content = serde_json::to_string_pretty(self).context("Failed to serialize config")?;
+
+        fs::write(&path, content).context("Failed to write wallp.json")?;
+
         Ok(())
     }
 }
