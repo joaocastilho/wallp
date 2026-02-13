@@ -17,12 +17,15 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             binary_name: wallp.exe
+            artifact_name: wallp-windows
           - os: macos-latest
             target: aarch64-apple-darwin
             binary_name: wallp
+            artifact_name: wallp-macos
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             binary_name: wallp
+            artifact_name: wallp-linux
 
     runs-on: ${{ matrix.os }}
 
@@ -46,7 +49,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.binary_name }}
+          name: ${{ matrix.artifact_name }}
           path: target/${{ matrix.target }}/release/${{ matrix.binary_name }}
           retention-days: 1
 
