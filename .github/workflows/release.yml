@@ -41,7 +41,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --locked
+        run: cargo build --release
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
