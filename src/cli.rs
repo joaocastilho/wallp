@@ -332,6 +332,8 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
 
     let export_line = format!(r#"export PATH="$PATH:{escaped_path}""#);
 
+    use std::io::Write;
+
     for profile_name in &[&rc_file, &profile_file] {
         let profile_path = home_dir.join(profile_name);
 
@@ -358,8 +360,6 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
             println!("ℹ️ Directory already in PATH ({profile_name})");
             continue;
         }
-
-        use std::io::Write;
 
         let mut file = fs::OpenOptions::new()
             .create(true)
