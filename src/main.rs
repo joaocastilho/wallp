@@ -103,6 +103,16 @@ fn main() -> ExitCode {
             }
         }
         None => {
+            // Check if initialized - if not, run init wizard automatically
+            if !cli::is_initialized() {
+                println!("First time running Wallp. Running setup...");
+                if let Err(e) = cli::init_wizard() {
+                    eprintln!("Error during setup: {}", e);
+                    return ExitCode::FAILURE;
+                }
+                return ExitCode::SUCCESS;
+            }
+
             if in_terminal {
                 use clap::CommandFactory;
                 if let Err(e) = Cli::command().print_help() {
