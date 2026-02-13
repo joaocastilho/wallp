@@ -21,12 +21,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache apt packages
-        uses: actions/cache@v4
-        with:
-          path: /var/cache/apt
-          key: ${{ runner.os }}-apt-${{ hashFiles('.github/workflows/ci.yml') }}
-
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
@@ -58,13 +52,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Cache apt packages
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/cache@v4
-        with:
-          path: /var/cache/apt
-          key: ${{ runner.os }}-apt-${{ hashFiles('.github/workflows/ci.yml') }}
 
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-latest'
