@@ -10,17 +10,50 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
 
 jobs:
+  # Format and lint - fast feedback
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings -W clippy::pedantic
+
+  # Build and test in parallel
   test:
-    name: Test
+    name: Test (${{ matrix.os }})
+    needs: lint  # Don't run tests if lint fails
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache apt packages
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt
+          key: ${{ runner.os }}-apt-${{ hashFiles('.github/workflows/ci.yml') }}
 
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-latest'
@@ -34,16 +67,8 @@ jobs:
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Check formatting
-        run: cargo fmt -- --check
-
-      - name: Run clippy
-        run: cargo clippy --all-targets -- -D warnings -W clippy::pedantic
-
-      - name: Build
-        run: cargo build --verbose
-
-      - name: Run tests
+      # Build once, then run tests (avoids double compilation)
+      - name: Build and test
         run: cargo test --verbose
 
   audit:
