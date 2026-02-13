@@ -179,8 +179,8 @@ pub fn init_wizard() -> Result<()> {
 
 #[cfg(target_os = "windows")]
 fn add_to_path_windows(exe_path: &Path) -> Result<()> {
-    use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
 
     let install_dir = exe_path
         .parent()
@@ -257,11 +257,7 @@ fn get_shell_name() -> &'static str {
         .iter()
         .any(|path| PathBuf::from(format!("{path}/{shell}")).exists());
 
-    if shell_exists {
-        shell
-    } else {
-        "sh"
-    }
+    if shell_exists { shell } else { "sh" }
 }
 
 #[cfg(test)]
@@ -660,8 +656,8 @@ done"#
 
 #[cfg(target_os = "windows")]
 fn remove_from_path_windows() -> Result<()> {
-    use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
 
     // Remove BOTH current dir and installed dir if present, just to be sure
     let current_exe = env::current_exe()?;
