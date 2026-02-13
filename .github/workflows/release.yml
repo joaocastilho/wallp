@@ -43,6 +43,9 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Run tests
+        run: cargo test --target ${{ matrix.target }}
+
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 

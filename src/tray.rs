@@ -26,9 +26,9 @@ pub fn run() -> ExitCode {
     }
 
     // Spawn Tokio Runtime for async tasks
-    std::thread::spawn(|| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(scheduler::start_background_task());
+    std::thread::spawn(|| match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt.block_on(scheduler::start_background_task()),
+        Err(e) => eprintln!("Failed to create tokio runtime: {}", e),
     });
 
     // Create Event Loop
@@ -100,7 +100,11 @@ pub fn run() -> ExitCode {
             } else if event.id == item_new.id() {
                 spawn_oneshot(manager::new);
             } else if event.id == item_folder.id() {
-                let _ = open::that(AppData::get_data_dir().unwrap().join("wallpapers"));
+                if let Ok(data_dir) = AppData::get_data_dir() {
+                    let _ = open::that(data_dir.join("wallpapers"));
+                } else {
+                    eprintln!("Failed to get data directory");
+                }
             } else if event.id == item_config.id() {
                 if let Ok(path) = AppData::get_config_path() {
                     let _ = open::that(path);
@@ -129,18 +133,27 @@ pub fn run() -> ExitCode {
 }
 
 fn check_autostart_status() -> bool {
-    if let Ok(current_exe) = std::env::current_exe() {
-        let auto = auto_launch::AutoLaunchBuilder::new()
-            .set_app_name("Wallp")
-            .set_app_path(current_exe.to_str().unwrap())
-            .set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent)
-            .build();
+    let current_exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(_) => return false,
+    };
 
-        if let Ok(a) = auto {
-            return a.is_enabled().unwrap_or(false);
-        }
-    }
-    false
+    let exe_path = match current_exe.to_str() {
+        Some(path) => path,
+        None => return false,
+    };
+
+    let auto = match auto_launch::AutoLaunchBuilder::new()
+        .set_app_name("Wallp")
+        .set_app_path(exe_path)
+        .set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent)
+        .build()
+    {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+
+    auto.is_enabled().unwrap_or(false)
 }
 
 fn spawn_oneshot<F, Fut>(f: F)
@@ -148,16 +161,18 @@ where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
 {
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        if let Err(e) = rt.block_on(f()) {
-            eprintln!("Tray action error: {}", e);
-            #[cfg(not(windows))]
-            let _ = Notification::new()
-                .summary("Wallp Error")
-                .body(&e.to_string())
-                .show();
+    std::thread::spawn(move || match tokio::runtime::Runtime::new() {
+        Ok(rt) => {
+            if let Err(e) = rt.block_on(f()) {
+                eprintln!("Tray action error: {}", e);
+                #[cfg(not(windows))]
+                let _ = Notification::new()
+                    .summary("Wallp Error")
+                    .body(&e.to_string())
+                    .show();
+            }
         }
+        Err(e) => eprintln!("Failed to create tokio runtime: {}", e),
     });
 }
 

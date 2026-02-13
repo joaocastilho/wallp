@@ -10,10 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub fn is_initialized() -> bool {
-    if let Ok(data_dir) = AppData::get_data_dir() {
-        if let Ok(config_path) = AppData::get_config_path() {
-            return data_dir.exists() && config_path.exists();
-        }
+    if let (Ok(data_dir), Ok(config_path)) = (AppData::get_data_dir(), AppData::get_config_path()) {
+        return data_dir.exists() && config_path.exists();
     }
     false
 }
@@ -259,15 +257,7 @@ fn add_to_path_unix(_exe_path: &Path) -> Result<()> {
 
 fn get_shell_name() -> &'static str {
     let shell = std::env::var("SHELL")
-        .map(|s| {
-            if s.contains("zsh") {
-                "zsh"
-            } else if s.contains("bash") {
-                "bash"
-            } else {
-                "bash"
-            }
-        })
+        .map(|s| if s.contains("zsh") { "zsh" } else { "bash" })
         .unwrap_or("bash");
 
     // Validate shell exists
@@ -276,12 +266,11 @@ fn get_shell_name() -> &'static str {
         .iter()
         .any(|path| PathBuf::from(format!("{}/{}", path, shell)).exists());
 
-    if !shell_exists {
-        // Fallback to sh which should always exist
-        return "sh";
+    if shell_exists {
+        shell
+    } else {
+        "sh"
     }
-
-    shell
 }
 
 #[cfg(test)]
