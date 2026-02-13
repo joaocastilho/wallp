@@ -232,9 +232,10 @@ fn add_to_path_windows(exe_path: &Path) -> Result<()> {
 fn broadcast_env_change() -> Result<()> {
     #[cfg(target_os = "windows")]
     {
-        let param = CString::new("Environment").unwrap();
+        let param =
+            CString::new("Environment").context("Failed to create CString for broadcast")?;
         unsafe {
-            let _ = SendMessageTimeoutA(
+            let result = SendMessageTimeoutA(
                 HWND_BROADCAST,
                 WM_SETTINGCHANGE,
                 WPARAM(0),
@@ -243,18 +244,21 @@ fn broadcast_env_change() -> Result<()> {
                 5000,
                 None,
             );
+            if result.0 == 0 {
+                eprintln!("Warning: Could not notify system of PATH change");
+            }
         }
     }
     Ok(())
 }
 
-#[cfg(not(target_os = "windows"))]
-fn add_to_path_windows(_exe_path: &Path) -> Result<()> {
-    add_to_path_unix(_exe_path)
+#[cfg(not(unix))]
+fn add_to_path_unix(_exe_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 fn get_shell_name() -> &'static str {
-    std::env::var("SHELL")
+    let shell = std::env::var("SHELL")
         .map(|s| {
             if s.contains("zsh") {
                 "zsh"
@@ -264,7 +268,20 @@ fn get_shell_name() -> &'static str {
                 "bash"
             }
         })
-        .unwrap_or("bash")
+        .unwrap_or("bash");
+
+    // Validate shell exists
+    let shell_paths = ["/bin", "/usr/bin", "/usr/local/bin"];
+    let shell_exists = shell_paths
+        .iter()
+        .any(|path| PathBuf::from(format!("{}/{}", path, shell)).exists());
+
+    if !shell_exists {
+        // Fallback to sh which should always exist
+        return "sh";
+    }
+
+    shell
 }
 
 #[cfg(test)]
@@ -276,15 +293,21 @@ pub fn get_shell_files(shell: &str) -> (String, String) {
     }
 }
 
+fn shell_escape(s: &str) -> String {
+    s.replace('"', "\\\"").replace('$', "\\$")
+}
+
 #[cfg(test)]
 pub fn create_export_line(install_dir: &str) -> String {
-    format!("export PATH=\"$PATH:{}\"", install_dir)
+    let escaped = shell_escape(install_dir);
+    format!(r#"export PATH="$PATH:{}""#, escaped)
 }
 
 #[cfg(test)]
 pub fn add_path_to_profile_content(content: &str, install_dir: &str) -> String {
     let export_line = create_export_line(install_dir);
-    if content.contains(&export_line) {
+    // Use exact line matching to avoid false positives
+    if content.lines().any(|line| line.trim() == export_line) {
         return content.to_string();
     }
     format!("{}\n# Wallp\n{}\n", content, export_line)
@@ -295,7 +318,7 @@ pub fn remove_path_from_profile_content(content: &str, install_dir: &str) -> Str
     let export_line = create_export_line(install_dir);
     content
         .lines()
-        .filter(|line| !line.contains(&export_line) && !line.contains("# Wallp"))
+        .filter(|line| line.trim() != export_line && !line.contains("# Wallp"))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -303,15 +326,16 @@ pub fn remove_path_from_profile_content(content: &str, install_dir: &str) -> Str
 #[cfg(test)]
 pub fn is_path_in_profile(content: &str, install_dir: &str) -> bool {
     let export_line = create_export_line(install_dir);
-    content.contains(&export_line)
+    content.lines().any(|line| line.trim() == export_line)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn add_to_path_unix(exe_path: &Path) -> Result<()> {
     let install_dir = exe_path
         .parent()
         .context("Failed to get executable directory")?;
     let install_dir_str = install_dir.to_str().context("Invalid path")?;
+    let escaped_path = shell_escape(install_dir_str);
 
     let shell = get_shell_name();
     let (rc_file, profile_file) = if shell == "zsh" {
@@ -323,17 +347,31 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
     let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
     let home_dir = base_dirs.home_dir();
 
-    let export_line = format!("export PATH=\"$PATH:{}\"", install_dir_str);
+    let export_line = format!(r#"export PATH="$PATH:{}")"#, escaped_path);
 
     for profile_name in &[&rc_file, &profile_file] {
         let profile_path = home_dir.join(profile_name);
+
+        // Check permissions if file exists
+        if profile_path.exists() {
+            let metadata = fs::metadata(&profile_path)?;
+            if metadata.permissions().readonly() {
+                println!("⚠️  Profile {} is read-only, skipping", profile_name);
+                continue;
+            }
+        }
+
         let profile_content = if profile_path.exists() {
             fs::read_to_string(&profile_path).unwrap_or_default()
         } else {
             String::new()
         };
 
-        if profile_content.contains(&export_line) {
+        // Use exact line matching to avoid false positives
+        if profile_content
+            .lines()
+            .any(|line| line.trim() == export_line)
+        {
             println!("ℹ️ Directory already in PATH ({})", profile_name);
             continue;
         }
@@ -345,7 +383,7 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
             .context(format!("Failed to open {}", profile_name))?;
 
         use std::io::Write;
-        writeln!(file, "\n# Wallp\nexport PATH=\"$PATH:{}\"", install_dir_str)
+        writeln!(file, r#"\n# Wallp\nexport PATH="$PATH:{}""#, escaped_path)
             .context(format!("Failed to write to {}", profile_name))?;
     }
 
@@ -355,63 +393,6 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
         rc_file
     );
 
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn add_to_path_unix(exe_path: &Path) -> Result<()> {
-    let install_dir = exe_path
-        .parent()
-        .context("Failed to get executable directory")?;
-    let install_dir_str = install_dir.to_str().context("Invalid path")?;
-
-    let shell = get_shell_name();
-    let (rc_file, profile_file) = if shell == "zsh" {
-        (".zshrc".to_string(), ".zprofile".to_string())
-    } else {
-        (".bashrc".to_string(), ".bash_profile".to_string())
-    };
-
-    let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
-    let home_dir = base_dirs.home_dir();
-
-    let export_line = format!("export PATH=\"$PATH:{}\"", install_dir_str);
-
-    for profile_name in &[&rc_file, &profile_file] {
-        let profile_path = home_dir.join(profile_name);
-        let profile_content = if profile_path.exists() {
-            fs::read_to_string(&profile_path).unwrap_or_default()
-        } else {
-            String::new()
-        };
-
-        if profile_content.contains(&export_line) {
-            println!("ℹ️ Directory already in PATH ({})", profile_name);
-            continue;
-        }
-
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&profile_path)
-            .context(format!("Failed to open {}", profile_name))?;
-
-        use std::io::Write;
-        writeln!(file, "\n# Wallp\nexport PATH=\"$PATH:{}\"", install_dir_str)
-            .context(format!("Failed to write to {}", profile_name))?;
-    }
-
-    println!("✅ Added {} to PATH.", install_dir_str);
-    println!(
-        "ℹ️ Restart your terminal or run 'source {}' to apply changes.",
-        rc_file
-    );
-
-    Ok(())
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn add_to_path_unix(_exe_path: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -563,13 +544,12 @@ fn handle_uninstall() -> Result<()> {
             ])
             .output();
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     {
-        let _ = Command::new("pkill").args(&["-f", "wallp"]).output();
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let _ = Command::new("pkill").args(&["-f", "wallp"]).output();
+        // Use more specific pattern and current user only to avoid killing unrelated processes
+        let _ = Command::new("pkill")
+            .args(&["-f", "-u", &std::process::id().to_string(), "^/.*/wallp$"])
+            .output();
     }
 
     println!("Removing from startup...");
@@ -650,15 +630,17 @@ fn handle_uninstall() -> Result<()> {
                 .spawn();
         }
 
-        #[cfg(target_os = "macos")]
+        #[cfg(unix)]
         {
-            let script = format!("sleep 2 && rm -f \"{}\"", exe_path);
-            let _ = Command::new("sh").args(&["-c", &script]).spawn();
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            let script = format!("sleep 2 && rm -f \"{}\"", exe_path);
+            let script = format!(
+                r#"for i in 1 2 3 4 5; do
+  sleep 1
+  if rm -f "{}" 2>/dev/null; then
+    break
+  fi
+done"#,
+                exe_path
+            );
             let _ = Command::new("sh").args(&["-c", &script]).spawn();
         }
 
@@ -712,10 +694,11 @@ fn remove_from_path_windows() -> Result<()> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 fn remove_from_path_unix() -> Result<()> {
     let data_dir = AppData::get_data_dir()?;
     let install_dir_str = data_dir.to_str().context("Invalid path")?;
+    let escaped_path = shell_escape(install_dir_str);
 
     let shell = get_shell_name();
     let (rc_file, profile_file) = if shell == "zsh" {
@@ -727,7 +710,7 @@ fn remove_from_path_unix() -> Result<()> {
     let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
     let home_dir = base_dirs.home_dir().to_path_buf();
 
-    let export_line = format!("export PATH=\"$PATH:{}\"", install_dir_str);
+    let export_line = format!(r#"export PATH="$PATH:{}")"#, escaped_path);
 
     for profile_name in &[&rc_file, &profile_file] {
         let profile_path = home_dir.join(profile_name);
@@ -738,61 +721,17 @@ fn remove_from_path_unix() -> Result<()> {
         let profile_content =
             fs::read_to_string(&profile_path).context("Failed to read shell profile")?;
 
-        if !profile_content.contains(&export_line) {
+        // Use exact line matching to avoid false positives
+        if !profile_content
+            .lines()
+            .any(|line| line.trim() == export_line)
+        {
             continue;
         }
 
         let new_content: String = profile_content
             .lines()
-            .filter(|line| !line.contains(&export_line) && !line.contains("# Wallp"))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        fs::write(&profile_path, new_content).context("Failed to write shell profile")?;
-    }
-
-    println!("✅ Removed from PATH.");
-    println!(
-        "ℹ️ Restart your terminal or run 'source {}' to apply changes.",
-        rc_file
-    );
-
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn remove_from_path_unix() -> Result<()> {
-    let data_dir = AppData::get_data_dir()?;
-    let install_dir_str = data_dir.to_str().context("Invalid path")?;
-
-    let shell = get_shell_name();
-    let (rc_file, profile_file) = if shell == "zsh" {
-        (".zshrc".to_string(), ".zprofile".to_string())
-    } else {
-        (".bashrc".to_string(), ".bash_profile".to_string())
-    };
-
-    let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
-    let home_dir = base_dirs.home_dir().to_path_buf();
-
-    let export_line = format!("export PATH=\"$PATH:{}\"", install_dir_str);
-
-    for profile_name in &[&rc_file, &profile_file] {
-        let profile_path = home_dir.join(profile_name);
-        if !profile_path.exists() {
-            continue;
-        }
-
-        let profile_content =
-            fs::read_to_string(&profile_path).context("Failed to read shell profile")?;
-
-        if !profile_content.contains(&export_line) {
-            continue;
-        }
-
-        let new_content: String = profile_content
-            .lines()
-            .filter(|line| !line.contains(&export_line) && !line.contains("# Wallp"))
+            .filter(|line| line.trim() != export_line && !line.contains("# Wallp"))
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -918,6 +857,22 @@ export EDITOR=vim"#;
         let content = "";
         let result = add_path_to_profile_content(content, "/home/user/My Documents/wallp");
         assert!(result.contains(&line));
+        // Verify the space is in the path (not escaped as it's within quotes)
+        assert!(line.contains("My Documents"));
+    }
+
+    #[test]
+    fn test_path_with_quotes() {
+        // Test that quotes in path are escaped
+        let escaped = shell_escape("/path/with\"quote");
+        assert_eq!(escaped, r#"/path/with\"quote"#);
+    }
+
+    #[test]
+    fn test_path_with_dollar() {
+        // Test that dollar signs in path are escaped
+        let escaped = shell_escape("/path/$HOME/wallp");
+        assert_eq!(escaped, r#"/path/\$HOME/wallp"#);
     }
 
     #[test]
@@ -931,5 +886,11 @@ export EDITOR=vim"#;
         assert!(!result.contains("/home/user/.config/wallp"));
         assert!(!result.contains("# Wallp"));
         assert!(result.contains("EDITOR=vim"));
+    }
+
+    #[test]
+    fn test_shell_escape_preserves_slashes() {
+        let escaped = shell_escape("/home/user/.config/wallp");
+        assert!(escaped.contains("/home/user/.config/wallp"));
     }
 }
