@@ -148,11 +148,10 @@ pub fn init_wizard() -> Result<()> {
 
     // Add to PATH
     #[cfg(target_os = "windows")]
-    if cfg!(target_os = "windows")
-        && Confirm::new()
-            .with_prompt("Add Wallp directory to system PATH?")
-            .default(true)
-            .interact()?
+    if Confirm::new()
+        .with_prompt("Add Wallp directory to system PATH?")
+        .default(true)
+        .interact()?
     {
         add_to_path_windows(&final_exe_path)?;
     }
@@ -397,17 +396,31 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+fn build_auto_launch(app_path: &str) -> Result<auto_launch::AutoLaunch> {
+    auto_launch::AutoLaunchBuilder::new()
+        .set_app_name("Wallp")
+        .set_app_path(app_path)
+        .set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent)
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build auto_launch: {}", e))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn build_auto_launch(app_path: &str) -> Result<auto_launch::AutoLaunch> {
+    auto_launch::AutoLaunchBuilder::new()
+        .set_app_name("Wallp")
+        .set_app_path(app_path)
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build auto_launch: {}", e))
+}
+
 pub fn setup_autostart(enable: bool, exe_path: &Path) -> Result<()> {
     let app_path = exe_path
         .to_str()
         .context("Failed to get executable path as string")?;
 
-    let auto = auto_launch::AutoLaunchBuilder::new()
-        .set_app_name("Wallp")
-        .set_app_path(app_path)
-        .set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent)
-        .build()
-        .map_err(|e| anyhow::anyhow!("Failed to build auto_launch: {}", e))?;
+    let auto = build_auto_launch(app_path)?;
 
     if enable {
         auto.enable()

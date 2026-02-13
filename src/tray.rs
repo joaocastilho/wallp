@@ -132,6 +132,25 @@ pub fn run() -> ExitCode {
     });
 }
 
+#[cfg(target_os = "macos")]
+fn build_auto_launch_for_check(exe_path: &str) -> Option<auto_launch::AutoLaunch> {
+    auto_launch::AutoLaunchBuilder::new()
+        .set_app_name("Wallp")
+        .set_app_path(exe_path)
+        .set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent)
+        .build()
+        .ok()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn build_auto_launch_for_check(exe_path: &str) -> Option<auto_launch::AutoLaunch> {
+    auto_launch::AutoLaunchBuilder::new()
+        .set_app_name("Wallp")
+        .set_app_path(exe_path)
+        .build()
+        .ok()
+}
+
 fn check_autostart_status() -> bool {
     let current_exe = match std::env::current_exe() {
         Ok(exe) => exe,
@@ -143,14 +162,9 @@ fn check_autostart_status() -> bool {
         None => return false,
     };
 
-    let auto = match auto_launch::AutoLaunchBuilder::new()
-        .set_app_name("Wallp")
-        .set_app_path(exe_path)
-        .set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent)
-        .build()
-    {
-        Ok(a) => a,
-        Err(_) => return false,
+    let auto = match build_auto_launch_for_check(exe_path) {
+        Some(a) => a,
+        None => return false,
     };
 
     auto.is_enabled().unwrap_or(false)

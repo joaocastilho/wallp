@@ -84,7 +84,7 @@ fn main() -> ExitCode {
     #[cfg(target_os = "windows")]
     let in_terminal = win_utils::is_launched_from_terminal();
     #[cfg(not(target_os = "windows"))]
-    let in_terminal = true; 
+    let in_terminal = atty::is(atty::Stream::Stdin); 
 
     // Parse CLI first
     let cli = Cli::parse();
