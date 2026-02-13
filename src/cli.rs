@@ -314,6 +314,8 @@ pub fn is_path_in_profile(content: &str, install_dir: &str) -> bool {
 
 #[cfg(unix)]
 fn add_to_path_unix(exe_path: &Path) -> Result<()> {
+    use std::io::Write;
+
     let install_dir = exe_path
         .parent()
         .context("Failed to get executable directory")?;
@@ -331,8 +333,6 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
     let home_dir = base_dirs.home_dir();
 
     let export_line = format!(r#"export PATH="$PATH:{escaped_path}""#);
-
-    use std::io::Write;
 
     for profile_name in &[&rc_file, &profile_file] {
         let profile_path = home_dir.join(profile_name);
