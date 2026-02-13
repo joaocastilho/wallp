@@ -320,9 +320,8 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
         (".bashrc".to_string(), ".bash_profile".to_string())
     };
 
-    let home_dir = directories::BaseDirs::new()
-        .context("Failed to get home directory")?
-        .home_dir();
+    let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
+    let home_dir = base_dirs.home_dir();
 
     let export_line = format!("export PATH=\"$PATH:{}\"", install_dir_str);
 
@@ -373,9 +372,8 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
         (".bashrc".to_string(), ".bash_profile".to_string())
     };
 
-    let home_dir = directories::BaseDirs::new()
-        .context("Failed to get home directory")?
-        .home_dir();
+    let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
+    let home_dir = base_dirs.home_dir();
 
     let export_line = format!("export PATH=\"$PATH:{}\"", install_dir_str);
 
