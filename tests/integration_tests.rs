@@ -98,10 +98,10 @@ fn test_wallpaper_history_tracking() {
     // Add some wallpapers
     for i in 0..5 {
         history.push(Wallpaper {
-            id: format!("photo_{}", i),
-            filename: format!("wallpaper_{}.jpg", i),
+            id: format!("photo_{i}"),
+            filename: format!("wallpaper_{i}.jpg"),
             applied_at: "2024-01-01T00:00:00Z".to_string(),
-            title: Some(format!("Photo {}", i)),
+            title: Some(format!("Photo {i}")),
             author: Some("Test Author".to_string()),
             url: Some("https://example.com".to_string()),
         });

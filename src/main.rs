@@ -1,7 +1,6 @@
 // No windows_subsystem attribute - defaults to console subsystem for CLI support.
 // We handle window hiding manually in main() for tray mode.
 
-
 use clap::Parser;
 use std::process::ExitCode;
 
@@ -14,8 +13,8 @@ mod unsplash;
 
 #[cfg(target_os = "windows")]
 mod win_utils {
-    use windows::Win32::System::Console::GetConsoleProcessList;
     use windows::Win32::System::Console::FreeConsole;
+    use windows::Win32::System::Console::GetConsoleProcessList;
 
     pub fn is_launched_from_terminal() -> bool {
         let mut pids = [0u32; 1];
@@ -84,7 +83,7 @@ fn main() -> ExitCode {
     #[cfg(target_os = "windows")]
     let in_terminal = win_utils::is_launched_from_terminal();
     #[cfg(not(target_os = "windows"))]
-    let in_terminal = atty::is(atty::Stream::Stdin); 
+    let in_terminal = atty::is(atty::Stream::Stdin);
 
     // Parse CLI first
     let cli = Cli::parse();
@@ -92,13 +91,13 @@ fn main() -> ExitCode {
     match &cli.command {
         Some(Commands::Setup) => {
             if let Err(e) = cli::init_wizard() {
-                eprintln!("Error: {}", e);
+                eprintln!("Error: {e}");
                 return ExitCode::FAILURE;
             }
         }
         Some(cmd) => {
             if let Err(e) = cli::handle_command(cmd) {
-                eprintln!("Error: {}", e);
+                eprintln!("Error: {e}");
                 return ExitCode::FAILURE;
             }
         }
@@ -107,7 +106,7 @@ fn main() -> ExitCode {
             if !cli::is_initialized() {
                 println!("First time running Wallp. Running setup...");
                 if let Err(e) = cli::init_wizard() {
-                    eprintln!("Error during setup: {}", e);
+                    eprintln!("Error during setup: {e}");
                     return ExitCode::FAILURE;
                 }
                 return ExitCode::SUCCESS;
@@ -116,7 +115,7 @@ fn main() -> ExitCode {
             if in_terminal {
                 use clap::CommandFactory;
                 if let Err(e) = Cli::command().print_help() {
-                    eprintln!("Error: {}", e);
+                    eprintln!("Error: {e}");
                     return ExitCode::FAILURE;
                 }
                 return ExitCode::SUCCESS;
@@ -126,7 +125,7 @@ fn main() -> ExitCode {
             win_utils::detach_console();
 
             return tray::run();
-        },
+        }
     }
 
     ExitCode::SUCCESS

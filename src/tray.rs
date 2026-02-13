@@ -8,8 +8,8 @@ use std::process::ExitCode;
 use tao::event_loop::{ControlFlow, EventLoop};
 use tray_icon::menu::MenuEvent;
 use tray_icon::{
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     TrayIconBuilder,
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
 };
 
 pub fn run() -> ExitCode {
@@ -17,7 +17,7 @@ pub fn run() -> ExitCode {
     let instance = match single_instance::SingleInstance::new("wallp_tray_instance") {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("Failed to create single instance: {}", e);
+            eprintln!("Failed to create single instance: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -28,7 +28,7 @@ pub fn run() -> ExitCode {
     // Spawn Tokio Runtime for async tasks
     std::thread::spawn(|| match tokio::runtime::Runtime::new() {
         Ok(rt) => rt.block_on(scheduler::start_background_task()),
-        Err(e) => eprintln!("Failed to create tokio runtime: {}", e),
+        Err(e) => eprintln!("Failed to create tokio runtime: {e}"),
     });
 
     // Create Event Loop
@@ -60,7 +60,7 @@ pub fn run() -> ExitCode {
         &PredefinedMenuItem::separator(),
         &item_quit,
     ]) {
-        eprintln!("Failed to create tray menu: {}", e);
+        eprintln!("Failed to create tray menu: {e}");
         return ExitCode::FAILURE;
     }
 
@@ -68,7 +68,7 @@ pub fn run() -> ExitCode {
     let icon = match load_icon() {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("Failed to load icon: {}", e);
+            eprintln!("Failed to load icon: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -81,7 +81,7 @@ pub fn run() -> ExitCode {
     {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("Failed to create tray icon: {}", e);
+            eprintln!("Failed to create tray icon: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -119,12 +119,12 @@ pub fn run() -> ExitCode {
                 };
 
                 if let Err(e) = result {
-                    eprintln!("Failed to toggle autostart: {}", e);
+                    eprintln!("Failed to toggle autostart: {e}");
                     item_autostart.set_checked(!is_enabled);
                     #[cfg(not(windows))]
                     let _ = Notification::new()
                         .summary("Wallp Error")
-                        .body(&format!("Failed to toggle autostart: {}", e))
+                        .body(&format!("Failed to toggle autostart: {e}"))
                         .show();
                 }
             }
@@ -152,19 +152,16 @@ fn build_auto_launch_for_check(exe_path: &str) -> Option<auto_launch::AutoLaunch
 }
 
 fn check_autostart_status() -> bool {
-    let current_exe = match std::env::current_exe() {
-        Ok(exe) => exe,
-        Err(_) => return false,
+    let Ok(current_exe) = std::env::current_exe() else {
+        return false;
     };
 
-    let exe_path = match current_exe.to_str() {
-        Some(path) => path,
-        None => return false,
+    let Some(exe_path) = current_exe.to_str() else {
+        return false;
     };
 
-    let auto = match build_auto_launch_for_check(exe_path) {
-        Some(a) => a,
-        None => return false,
+    let Some(auto) = build_auto_launch_for_check(exe_path) else {
+        return false;
     };
 
     auto.is_enabled().unwrap_or(false)
@@ -178,7 +175,7 @@ where
     std::thread::spawn(move || match tokio::runtime::Runtime::new() {
         Ok(rt) => {
             if let Err(e) = rt.block_on(f()) {
-                eprintln!("Tray action error: {}", e);
+                eprintln!("Tray action error: {e}");
                 #[cfg(not(windows))]
                 let _ = Notification::new()
                     .summary("Wallp Error")
@@ -186,7 +183,7 @@ where
                     .show();
             }
         }
-        Err(e) => eprintln!("Failed to create tokio runtime: {}", e),
+        Err(e) => eprintln!("Failed to create tokio runtime: {e}"),
     });
 }
 

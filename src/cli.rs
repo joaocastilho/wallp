@@ -9,19 +9,32 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[cfg(windows)]
+use windows::Win32::Foundation::WPARAM;
+#[cfg(windows)]
+use windows::Win32::UI::WindowsAndMessaging::{
+    HWND_BROADCAST, SMTO_ABORTIFHUNG, SendMessageTimeoutA, WM_SETTINGCHANGE,
+};
+
+fn get_exe_name() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "wallp.exe"
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        "wallp"
+    }
+}
+
 pub fn is_initialized() -> bool {
     if let (Ok(data_dir), Ok(config_path)) = (AppData::get_data_dir(), AppData::get_config_path()) {
         return data_dir.exists() && config_path.exists();
     }
     false
 }
-#[cfg(windows)]
-use windows::Win32::Foundation::WPARAM;
-#[cfg(windows)]
-use windows::Win32::UI::WindowsAndMessaging::{
-    SendMessageTimeoutA, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
-};
 
+#[allow(clippy::too_many_lines)]
 pub fn init_wizard() -> Result<()> {
     println!("Welcome to Wallp Setup Wizard!");
     println!("------------------------------");
@@ -49,17 +62,6 @@ pub fn init_wizard() -> Result<()> {
         fs::create_dir_all(&data_dir).context("Failed to create data directory")?;
     }
 
-    fn get_exe_name() -> &'static str {
-        #[cfg(target_os = "windows")]
-        {
-            "wallp.exe"
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            "wallp"
-        }
-    }
-
     let target_exe = data_dir.join(get_exe_name());
 
     // Copy to AppData if not already there
@@ -68,7 +70,10 @@ pub fn init_wizard() -> Result<()> {
 
     let is_installed = target_exe_canonical.is_some_and(|t| t == current_exe_canonical);
 
-    let final_exe_path = if !is_installed {
+    let final_exe_path = if is_installed {
+        println!("ℹ️  Already running from installation directory.");
+        current_exe
+    } else {
         println!("Installing Wallp to {}", target_exe.display());
         // Copy current exe to target
         // We might fail if target is running (shouldn't be, if we are in init)
@@ -81,16 +86,10 @@ pub fn init_wizard() -> Result<()> {
                 target_exe
             }
             Err(e) => {
-                println!(
-                    "⚠️  Failed to copy executable: {}. Proceeding with current executable.",
-                    e
-                );
+                println!("⚠️  Failed to copy executable: {e}. Proceeding with current executable.");
                 current_exe
             }
         }
-    } else {
-        println!("ℹ️  Already running from installation directory.");
-        current_exe
     };
 
     // Canonicalize the final path to ensure we have the absolute system path.
@@ -188,8 +187,8 @@ pub fn init_wizard() -> Result<()> {
 
 #[cfg(target_os = "windows")]
 fn add_to_path_windows(exe_path: &Path) -> Result<()> {
-    use winreg::enums::*;
     use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
 
     let install_dir = exe_path
         .parent()
@@ -214,11 +213,11 @@ fn add_to_path_windows(exe_path: &Path) -> Result<()> {
     let new_path = if path_val.is_empty() {
         install_dir_str.to_string()
     } else {
-        format!("{};{}", path_val, install_dir_str)
+        format!("{path_val};{install_dir_str}")
     };
 
     env.set_value("Path", &new_path)?;
-    println!("✅ Added {} to PATH.", install_dir_str);
+    println!("✅ Added {install_dir_str} to PATH.");
 
     let _ = broadcast_env_change();
     println!("ℹ️ System notified of PATH change.");
@@ -254,8 +253,8 @@ fn broadcast_env_change() -> Result<()> {
 
 #[cfg(not(target_family = "unix"))]
 #[allow(dead_code)]
-fn add_to_path_unix(_exe_path: &Path) -> Result<()> {
-    Ok(())
+fn add_to_path_unix(_exe_path: &Path) {
+    // Stub for non-unix platforms
 }
 
 #[allow(dead_code)]
@@ -268,13 +267,9 @@ fn get_shell_name() -> &'static str {
     let shell_paths = ["/bin", "/usr/bin", "/usr/local/bin"];
     let shell_exists = shell_paths
         .iter()
-        .any(|path| PathBuf::from(format!("{}/{}", path, shell)).exists());
+        .any(|path| PathBuf::from(format!("{path}/{shell}")).exists());
 
-    if shell_exists {
-        shell
-    } else {
-        "sh"
-    }
+    if shell_exists { shell } else { "sh" }
 }
 
 #[cfg(test)]
@@ -300,7 +295,7 @@ fn powershell_escape(s: &str) -> String {
 #[cfg(test)]
 pub fn create_export_line(install_dir: &str) -> String {
     let escaped = shell_escape(install_dir);
-    format!(r#"export PATH="$PATH:{}""#, escaped)
+    format!(r#"export PATH="$PATH:{escaped}""#)
 }
 
 #[cfg(test)]
@@ -310,7 +305,7 @@ pub fn add_path_to_profile_content(content: &str, install_dir: &str) -> String {
     if content.lines().any(|line| line.trim() == export_line) {
         return content.to_string();
     }
-    format!("{}\n# Wallp\n{}\n", content, export_line)
+    format!("{content}\n# Wallp\n{export_line}\n")
 }
 
 #[cfg(test)]
@@ -380,18 +375,15 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
             .create(true)
             .append(true)
             .open(&profile_path)
-            .context(format!("Failed to open {}", profile_name))?;
+            .context(format!("Failed to open {profile_name}"))?;
 
         use std::io::Write;
-        writeln!(file, "\n# Wallp\nexport PATH=\"$PATH:{}\"", escaped_path)
-            .context(format!("Failed to write to {}", profile_name))?;
+        writeln!(file, "\n# Wallp\nexport PATH=\"$PATH:{escaped_path}\"")
+            .context(format!("Failed to write to {profile_name}"))?;
     }
 
-    println!("✅ Added {} to PATH.", install_dir_str);
-    println!(
-        "ℹ️ Restart your terminal or run 'source {}' to apply changes.",
-        rc_file
-    );
+    println!("✅ Added {install_dir_str} to PATH.");
+    println!("ℹ️ Restart your terminal or run 'source {rc_file}' to apply changes.");
 
     Ok(())
 }
@@ -403,7 +395,7 @@ fn build_auto_launch(app_path: &str) -> Result<auto_launch::AutoLaunch> {
         .set_app_path(app_path)
         .set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent)
         .build()
-        .map_err(|e| anyhow::anyhow!("Failed to build auto_launch: {}", e))
+        .map_err(|e| anyhow::anyhow!("Failed to build auto_launch: {e}"))
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -412,7 +404,7 @@ fn build_auto_launch(app_path: &str) -> Result<auto_launch::AutoLaunch> {
         .set_app_name("Wallp")
         .set_app_path(app_path)
         .build()
-        .map_err(|e| anyhow::anyhow!("Failed to build auto_launch: {}", e))
+        .map_err(|e| anyhow::anyhow!("Failed to build auto_launch: {e}"))
 }
 
 pub fn setup_autostart(enable: bool, exe_path: &Path) -> Result<()> {
@@ -424,10 +416,10 @@ pub fn setup_autostart(enable: bool, exe_path: &Path) -> Result<()> {
 
     if enable {
         auto.enable()
-            .map_err(|e| anyhow::anyhow!("Failed to enable autostart: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to enable autostart: {e}"))?;
     } else {
         auto.disable()
-            .map_err(|e| anyhow::anyhow!("Failed to disable autostart: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to disable autostart: {e}"))?;
     }
     Ok(())
 }
@@ -439,7 +431,7 @@ fn start_background_process(exe_path: &Path) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x00000008;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
         cmd.creation_flags(DETACHED_PROCESS);
     }
 
@@ -515,10 +507,10 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
                 match app_data.config.set(key, value) {
                     Ok(()) => {
                         app_data.save()?;
-                        println!("✅ Set {} to {}", key, value);
+                        println!("✅ Set {key} to {value}");
                     }
                     Err(e) => {
-                        anyhow::bail!("Failed to set config: {}", e);
+                        anyhow::bail!("Failed to set config: {e}");
                     }
                 }
             }
@@ -543,8 +535,11 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 fn handle_uninstall() -> Result<()> {
-    println!("⚠️  WARNING: This will remove Wallp from startup, delete all configuration/data, and remove it from PATH.");
+    println!(
+        "⚠️  WARNING: This will remove Wallp from startup, delete all configuration/data, and remove it from PATH."
+    );
 
     if !Confirm::new()
         .with_prompt("Are you sure you want to uninstall Wallp?")
@@ -561,13 +556,7 @@ fn handle_uninstall() -> Result<()> {
     {
         let my_pid = std::process::id();
         let _ = Command::new("taskkill")
-            .args([
-                "/F",
-                "/IM",
-                "wallp.exe",
-                "/FI",
-                &format!("PID ne {}", my_pid),
-            ])
+            .args(["/F", "/IM", "wallp.exe", "/FI", &format!("PID ne {my_pid}")])
             .output();
     }
     #[cfg(unix)]
@@ -589,7 +578,7 @@ fn handle_uninstall() -> Result<()> {
         };
         let installed_exe = data_dir.join(exe_name);
         if let Err(e) = setup_autostart(false, &installed_exe) {
-            println!("⚠️  Failed to remove installed autostart: {}", e);
+            println!("⚠️  Failed to remove installed autostart: {e}");
         }
     }
     // Also try current exe just in case
@@ -601,13 +590,13 @@ fn handle_uninstall() -> Result<()> {
     #[cfg(target_os = "windows")]
     {
         if let Err(e) = remove_from_path_windows() {
-            println!("⚠️  Failed to remove from PATH: {}", e);
+            println!("⚠️  Failed to remove from PATH: {e}");
         }
     }
     #[cfg(not(target_os = "windows"))]
     {
         if let Err(e) = remove_from_path_unix() {
-            println!("⚠️  Failed to remove from PATH: {}", e);
+            println!("⚠️  Failed to remove from PATH: {e}");
         }
     }
 
@@ -647,8 +636,7 @@ fn handle_uninstall() -> Result<()> {
         {
             let escaped_exe_path = powershell_escape(&exe_path);
             let ps_script = format!(
-                r#"Start-Sleep -Seconds 2; Set-Location $env:TEMP; Remove-Item -LiteralPath "{}" -Force -ErrorAction SilentlyContinue"#,
-                escaped_exe_path
+                r#"Start-Sleep -Seconds 2; Set-Location $env:TEMP; Remove-Item -LiteralPath "{escaped_exe_path}" -Force -ErrorAction SilentlyContinue"#
             );
             let _ = Command::new("powershell")
                 .args(["-WindowStyle", "Hidden", "-Command", &ps_script])
@@ -661,11 +649,10 @@ fn handle_uninstall() -> Result<()> {
             let script = format!(
                 r#"for i in 1 2 3 4 5; do
   sleep 1
-  if rm -f "{}" 2>/dev/null; then
+  if rm -f "{escaped_exe_path}" 2>/dev/null; then
     break
   fi
-done"#,
-                escaped_exe_path
+done"#
             );
             let _ = Command::new("sh").args(&["-c", &script]).spawn();
         }
@@ -680,8 +667,8 @@ done"#,
 
 #[cfg(target_os = "windows")]
 fn remove_from_path_windows() -> Result<()> {
-    use winreg::enums::*;
     use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
 
     // Remove BOTH current dir and installed dir if present, just to be sure
     let current_exe = env::current_exe()?;
@@ -765,18 +752,15 @@ fn remove_from_path_unix() -> Result<()> {
     }
 
     println!("✅ Removed from PATH.");
-    println!(
-        "ℹ️ Restart your terminal or run 'source {}' to apply changes.",
-        rc_file
-    );
+    println!("ℹ️ Restart your terminal or run 'source {rc_file}' to apply changes.");
 
     Ok(())
 }
 
 #[cfg(not(target_family = "unix"))]
 #[allow(dead_code)]
-fn remove_from_path_unix() -> Result<()> {
-    Ok(())
+fn remove_from_path_unix() {
+    // Stub for non-unix platforms
 }
 
 #[cfg(test)]
@@ -899,7 +883,7 @@ export EDITOR=vim"#;
     fn test_path_with_dollar() {
         // Test that dollar signs in path are escaped
         let escaped = shell_escape("/path/$HOME/wallp");
-        assert_eq!(escaped, r#"/path/\$HOME/wallp"#);
+        assert_eq!(escaped, r"/path/\$HOME/wallp");
     }
 
     #[test]

@@ -51,8 +51,7 @@ impl Config {
                 Ok(())
             }
             _ => Err(format!(
-                "Unknown key: {}. Available: unsplash_access_key, interval_minutes, aspect_ratio_tolerance, retention_days, collections",
-                key
+                "Unknown key: {key}. Available: unsplash_access_key, interval_minutes, aspect_ratio_tolerance, retention_days, collections"
             )),
         }
     }
@@ -69,10 +68,7 @@ impl Config {
         );
         println!("  collections: {}", self.collections.join(", "));
         println!("  interval_minutes: {}", self.interval_minutes);
-        println!(
-            "  aspect_ratio_tolerance: {}",
-            self.aspect_ratio_tolerance
-        );
+        println!("  aspect_ratio_tolerance: {}", self.aspect_ratio_tolerance);
         println!("  retention_days: {}", self.retention_days);
     }
 }
@@ -163,12 +159,13 @@ impl AppData {
         Ok(())
     }
 
-    /// Clean up old wallpapers that exceed retention_days
+    /// Clean up old wallpapers that exceed `retention_days`
     pub fn cleanup_old_wallpapers(&mut self) -> anyhow::Result<u32> {
         if self.config.retention_days == 0 {
             return Ok(0); // Retention disabled
         }
 
+        #[allow(clippy::cast_possible_wrap)]
         let cutoff_date =
             chrono::Utc::now() - chrono::Duration::days(self.config.retention_days as i64);
         let data_dir = Self::get_data_dir()?;
@@ -182,20 +179,20 @@ impl AppData {
             if let Ok(applied_at) = chrono::DateTime::parse_from_rfc3339(&wallpaper.applied_at)
                 && applied_at < cutoff_date
             {
-                    // This wallpaper is too old, delete the file
-                    let file_path = wallpapers_dir.join(&wallpaper.filename);
-                    if file_path.exists() {
-                        if let Err(e) = fs::remove_file(&file_path) {
-                            eprintln!(
-                                "Warning: Failed to delete old wallpaper file {}: {}",
-                                wallpaper.filename, e
-                            );
-                        } else {
-                            removed_count += 1;
-                        }
+                // This wallpaper is too old, delete the file
+                let file_path = wallpapers_dir.join(&wallpaper.filename);
+                if file_path.exists() {
+                    if let Err(e) = fs::remove_file(&file_path) {
+                        eprintln!(
+                            "Warning: Failed to delete old wallpaper file {}: {}",
+                            wallpaper.filename, e
+                        );
+                    } else {
+                        removed_count += 1;
                     }
-                    // Skip adding to retained history
-                    continue;
+                }
+                // Skip adding to retained history
+                continue;
             }
             // Keep this wallpaper
             retained_history.push(wallpaper.clone());
@@ -223,7 +220,7 @@ mod tests {
         assert!(config.unsplash_access_key.is_empty());
         assert_eq!(config.collections.len(), 4);
         assert_eq!(config.interval_minutes, 120);
-        assert_eq!(config.aspect_ratio_tolerance, 0.1);
+        assert!((config.aspect_ratio_tolerance - 0.1).abs() < f64::EPSILON);
         assert_eq!(config.retention_days, 7);
     }
 
