@@ -19,16 +19,16 @@ mod win_utils {
 
     pub fn is_launched_from_terminal() -> bool {
         let mut pids = [0u32; 1];
+        // SAFETY: GetConsoleProcessList is a Windows API that takes a mutable slice
+        // and fills it with process IDs. The slice is properly sized and valid.
         let count = unsafe { GetConsoleProcessList(&mut pids) };
         count > 1
     }
 
     pub fn detach_console() {
+        // SAFETY: FreeConsole is a Windows API that detaches the calling process
+        // from its console. It's safe to call when a console exists.
         unsafe {
-            // Detach this process from the current console window.
-            // This effectively makes the console disappearance "permanent" for this process,
-            // preventing it from closing if the original console is closed (if started from there)
-            // or just removing the window if it spawned one.
             let _ = FreeConsole();
         }
     }

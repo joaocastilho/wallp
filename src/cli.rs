@@ -232,6 +232,9 @@ fn broadcast_env_change() -> Result<()> {
     {
         let param =
             CString::new("Environment").context("Failed to create CString for broadcast")?;
+        // SAFETY: SendMessageTimeoutA is a Windows API that broadcasts a message to all top-level windows.
+        // The LPARAM is a valid pointer to a null-terminated CString that lives for the duration of the call.
+        // This is the standard Windows mechanism for notifying applications of environment changes.
         unsafe {
             let result = SendMessageTimeoutA(
                 HWND_BROADCAST,
@@ -251,10 +254,12 @@ fn broadcast_env_change() -> Result<()> {
 }
 
 #[cfg(not(target_family = "unix"))]
+#[allow(dead_code)]
 fn add_to_path_unix(_exe_path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn get_shell_name() -> &'static str {
     let shell = std::env::var("SHELL")
         .map(|s| if s.contains("zsh") { "zsh" } else { "bash" })
@@ -282,8 +287,15 @@ pub fn get_shell_files(shell: &str) -> (String, String) {
     }
 }
 
+#[allow(dead_code)]
 fn shell_escape(s: &str) -> String {
     s.replace('"', "\\\"").replace('$', "\\$")
+}
+
+#[cfg(target_os = "windows")]
+fn powershell_escape(s: &str) -> String {
+    // PowerShell escaping: escape quotes, backticks, and dollar signs
+    s.replace('"', "\"\"").replace('`', "``").replace('$', "`$")
 }
 
 #[cfg(test)]
@@ -425,7 +437,7 @@ fn start_background_process(exe_path: &Path) -> Result<()> {
 }
 
 pub fn handle_command(cmd: &Commands) -> Result<()> {
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
 
     match cmd {
         Commands::Setup => unreachable!(), // Handled in main
@@ -608,9 +620,10 @@ fn handle_uninstall() -> Result<()> {
 
         #[cfg(target_os = "windows")]
         {
+            let escaped_exe_path = powershell_escape(&exe_path);
             let ps_script = format!(
-                r#"Start-Sleep -Seconds 2; Set-Location $env:TEMP; Remove-Item -Path "{}" -Force -ErrorAction SilentlyContinue"#,
-                exe_path
+                r#"Start-Sleep -Seconds 2; Set-Location $env:TEMP; Remove-Item -LiteralPath "{}" -Force -ErrorAction SilentlyContinue"#,
+                escaped_exe_path
             );
             let _ = Command::new("powershell")
                 .args(["-WindowStyle", "Hidden", "-Command", &ps_script])
@@ -619,6 +632,7 @@ fn handle_uninstall() -> Result<()> {
 
         #[cfg(unix)]
         {
+            let escaped_exe_path = shell_escape(&exe_path);
             let script = format!(
                 r#"for i in 1 2 3 4 5; do
   sleep 1
@@ -626,7 +640,7 @@ fn handle_uninstall() -> Result<()> {
     break
   fi
 done"#,
-                exe_path
+                escaped_exe_path
             );
             let _ = Command::new("sh").args(&["-c", &script]).spawn();
         }
@@ -735,6 +749,7 @@ fn remove_from_path_unix() -> Result<()> {
 }
 
 #[cfg(not(target_family = "unix"))]
+#[allow(dead_code)]
 fn remove_from_path_unix() -> Result<()> {
     Ok(())
 }

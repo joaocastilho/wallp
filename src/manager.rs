@@ -96,9 +96,7 @@ async fn fetch_and_set_new(app_data: &mut AppData) -> Result<()> {
         url: Some(photo.links.html),
     };
     
-    // If we were in the middle of history, truncate future?
-    // PRD says: "Ignore current index/history... Append to history... Set currentHistoryIndex to new end"
-    // Usually "New" implies branching or just appending. Let's just append.
+    // Append new wallpaper to history and set current index to the new item
     
     app_data.history.push(new_wallpaper);
     app_data.state.current_history_index = app_data.history.len() - 1;
@@ -108,6 +106,11 @@ async fn fetch_and_set_new(app_data: &mut AppData) -> Result<()> {
     // Schedule next run
     let next_run = Utc::now() + chrono::Duration::minutes(app_data.config.interval_minutes as i64);
     app_data.state.next_run_at = next_run.to_rfc3339();
+    
+    // Clean up old wallpapers based on retention_days setting
+    if let Err(e) = app_data.cleanup_old_wallpapers() {
+        eprintln!("Warning: Failed to clean up old wallpapers: {}", e);
+    }
     
     app_data.save()?;
     

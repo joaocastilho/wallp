@@ -105,6 +105,55 @@ impl AppData {
 
         Ok(())
     }
+
+    /// Clean up old wallpapers that exceed retention_days
+    pub fn cleanup_old_wallpapers(&mut self) -> anyhow::Result<u32> {
+        if self.config.retention_days == 0 {
+            return Ok(0); // Retention disabled
+        }
+
+        let cutoff_date =
+            chrono::Utc::now() - chrono::Duration::days(self.config.retention_days as i64);
+        let data_dir = Self::get_data_dir()?;
+        let wallpapers_dir = data_dir.join("wallpapers");
+
+        let mut removed_count = 0;
+        let mut retained_history: Vec<Wallpaper> = Vec::new();
+
+        for wallpaper in &self.history {
+            // Parse the applied_at timestamp
+            if let Ok(applied_at) = chrono::DateTime::parse_from_rfc3339(&wallpaper.applied_at)
+                && applied_at < cutoff_date
+            {
+                    // This wallpaper is too old, delete the file
+                    let file_path = wallpapers_dir.join(&wallpaper.filename);
+                    if file_path.exists() {
+                        if let Err(e) = fs::remove_file(&file_path) {
+                            eprintln!(
+                                "Warning: Failed to delete old wallpaper file {}: {}",
+                                wallpaper.filename, e
+                            );
+                        } else {
+                            removed_count += 1;
+                        }
+                    }
+                    // Skip adding to retained history
+                    continue;
+            }
+            // Keep this wallpaper
+            retained_history.push(wallpaper.clone());
+        }
+
+        // Update history with retained items
+        self.history = retained_history;
+
+        // Adjust current_history_index if it's now out of bounds
+        if self.state.current_history_index >= self.history.len() {
+            self.state.current_history_index = self.history.len().saturating_sub(1);
+        }
+
+        Ok(removed_count)
+    }
 }
 
 #[cfg(test)]
