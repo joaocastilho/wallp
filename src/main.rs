@@ -45,7 +45,7 @@ struct Cli {
 #[derive(clap::Subcommand)]
 enum Commands {
     /// Initialize Wallp (Interactive Setup)
-    Init,
+    Setup,
     /// Force fetch a new wallpaper
     New,
     /// Go to next wallpaper (History or New)
@@ -90,7 +90,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     match &cli.command {
-        Some(Commands::Init) => {
+        Some(Commands::Setup) => {
             if let Err(e) = cli::init_wizard() {
                 eprintln!("Error: {}", e);
                 return ExitCode::FAILURE;

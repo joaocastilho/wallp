@@ -403,7 +403,7 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     match cmd {
-        Commands::Init => unreachable!(), // Handled in main
+        Commands::Setup => unreachable!(), // Handled in main
         Commands::New => {
             rt.block_on(manager::new())?;
             println!("✨ New wallpaper set.");
