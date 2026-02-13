@@ -2,6 +2,7 @@ use crate::config::AppData;
 use crate::manager;
 use crate::scheduler;
 use anyhow::Context;
+#[cfg(not(windows))]
 use notify_rust::Notification;
 use std::process::ExitCode;
 use tao::event_loop::{ControlFlow, EventLoop};
@@ -116,6 +117,7 @@ pub fn run() -> ExitCode {
                 if let Err(e) = result {
                     eprintln!("Failed to toggle autostart: {}", e);
                     item_autostart.set_checked(!is_enabled);
+                    #[cfg(not(windows))]
                     let _ = Notification::new()
                         .summary("Wallp Error")
                         .body(&format!("Failed to toggle autostart: {}", e))
@@ -150,6 +152,7 @@ where
         let rt = tokio::runtime::Runtime::new().unwrap();
         if let Err(e) = rt.block_on(f()) {
             eprintln!("Tray action error: {}", e);
+            #[cfg(not(windows))]
             let _ = Notification::new()
                 .summary("Wallp Error")
                 .body(&e.to_string())

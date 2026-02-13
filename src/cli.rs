@@ -8,7 +8,9 @@ use std::ffi::CString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+#[cfg(windows)]
 use windows::Win32::Foundation::WPARAM;
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     SendMessageTimeoutA, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE,
 };
