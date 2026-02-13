@@ -253,53 +253,68 @@ fn add_to_path_windows(_exe_path: &Path) -> Result<()> {
     add_to_path_unix(_exe_path)
 }
 
+fn get_shell_name() -> &'static str {
+    std::env::var("SHELL")
+        .map(|s| {
+            if s.contains("zsh") {
+                "zsh"
+            } else if s.contains("bash") {
+                "bash"
+            } else {
+                "bash"
+            }
+        })
+        .unwrap_or("bash")
+}
+
 #[cfg(target_os = "macos")]
 fn add_to_path_unix(exe_path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
     let install_dir = exe_path
         .parent()
         .context("Failed to get executable directory")?;
     let install_dir_str = install_dir.to_str().context("Invalid path")?;
 
-    let shell_profile = if std::env::var("ZSH_VERSION").is_ok() {
-        ".zshrc"
+    let shell = get_shell_name();
+    let (rc_file, profile_file) = if shell == "zsh" {
+        (".zshrc".to_string(), ".zprofile".to_string())
     } else {
-        ".bashrc"
+        (".bashrc".to_string(), ".bash_profile".to_string())
     };
 
     let home_dir = directories::BaseDirs::new()
         .context("Failed to get home directory")?
         .home_dir();
-    let profile_path = home_dir.join(shell_profile);
-
-    let profile_content = if profile_path.exists() {
-        fs::read_to_string(&profile_path).unwrap_or_default()
-    } else {
-        String::new()
-    };
 
     let export_line = format!("export PATH=\"$PATH:{}\"", install_dir_str);
 
-    if profile_content.contains(&export_line) {
-        println!("ℹ️ Directory already in PATH.");
-        return Ok(());
+    for profile_name in &[&rc_file, &profile_file] {
+        let profile_path = home_dir.join(profile_name);
+        let profile_content = if profile_path.exists() {
+            fs::read_to_string(&profile_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        if profile_content.contains(&export_line) {
+            println!("ℹ️ Directory already in PATH ({})", profile_name);
+            continue;
+        }
+
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&profile_path)
+            .context(format!("Failed to open {}", profile_name))?;
+
+        use std::io::Write;
+        writeln!(file, "\n# Wallp\nexport PATH=\"$PATH:{}\"", install_dir_str)
+            .context(format!("Failed to write to {}", profile_name))?;
     }
-
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&profile_path)
-        .context("Failed to open shell profile")?;
-
-    use std::io::Write;
-    writeln!(file, "\n# Wallp\nexport PATH=\"$PATH:{}\"", install_dir_str)
-        .context("Failed to write to shell profile")?;
 
     println!("✅ Added {} to PATH.", install_dir_str);
     println!(
         "ℹ️ Restart your terminal or run 'source {}' to apply changes.",
-        shell_profile
+        rc_file
     );
 
     Ok(())
@@ -312,44 +327,47 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
         .context("Failed to get executable directory")?;
     let install_dir_str = install_dir.to_str().context("Invalid path")?;
 
-    let shell_profile = if std::env::var("ZSH_VERSION").is_ok() {
-        ".zshrc"
+    let shell = get_shell_name();
+    let (rc_file, profile_file) = if shell == "zsh" {
+        (".zshrc".to_string(), ".zprofile".to_string())
     } else {
-        ".bashrc"
+        (".bashrc".to_string(), ".bash_profile".to_string())
     };
 
     let home_dir = directories::BaseDirs::new()
         .context("Failed to get home directory")?
         .home_dir();
-    let profile_path = home_dir.join(shell_profile);
-
-    let profile_content = if profile_path.exists() {
-        fs::read_to_string(&profile_path).unwrap_or_default()
-    } else {
-        String::new()
-    };
 
     let export_line = format!("export PATH=\"$PATH:{}\"", install_dir_str);
 
-    if profile_content.contains(&export_line) {
-        println!("ℹ️ Directory already in PATH.");
-        return Ok(());
+    for profile_name in &[&rc_file, &profile_file] {
+        let profile_path = home_dir.join(profile_name);
+        let profile_content = if profile_path.exists() {
+            fs::read_to_string(&profile_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        if profile_content.contains(&export_line) {
+            println!("ℹ️ Directory already in PATH ({})", profile_name);
+            continue;
+        }
+
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&profile_path)
+            .context(format!("Failed to open {}", profile_name))?;
+
+        use std::io::Write;
+        writeln!(file, "\n# Wallp\nexport PATH=\"$PATH:{}\"", install_dir_str)
+            .context(format!("Failed to write to {}", profile_name))?;
     }
-
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&profile_path)
-        .context("Failed to open shell profile")?;
-
-    use std::io::Write;
-    writeln!(file, "\n# Wallp\nexport PATH=\"$PATH:{}\"", install_dir_str)
-        .context("Failed to write to shell profile")?;
 
     println!("✅ Added {} to PATH.", install_dir_str);
     println!(
         "ℹ️ Restart your terminal or run 'source {}' to apply changes.",
-        shell_profile
+        rc_file
     );
 
     Ok(())
@@ -657,52 +675,49 @@ fn remove_from_path_windows() -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "windows"))]
-fn remove_from_path_windows() -> Result<()> {
-    remove_from_path_unix()
-}
-
 #[cfg(target_os = "macos")]
 fn remove_from_path_unix() -> Result<()> {
     let data_dir = AppData::get_data_dir()?;
     let install_dir_str = data_dir.to_str().context("Invalid path")?;
 
-    let shell_profile = if std::env::var("ZSH_VERSION").is_ok() {
-        ".zshrc"
+    let shell = get_shell_name();
+    let (rc_file, profile_file) = if shell == "zsh" {
+        (".zshrc".to_string(), ".zprofile".to_string())
     } else {
-        ".bashrc"
+        (".bashrc".to_string(), ".bash_profile".to_string())
     };
 
-    let home_dir = directories::BaseDirs::new()
-        .context("Failed to get home directory")?
-        .home_dir();
-    let profile_path = home_dir.join(shell_profile);
+    let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
+    let home_dir = base_dirs.home_dir().to_path_buf();
 
-    if !profile_path.exists() {
-        println!("ℹ️ Shell profile not found.");
-        return Ok(());
-    }
-
-    let profile_content =
-        fs::read_to_string(&profile_path).context("Failed to read shell profile")?;
     let export_line = format!("export PATH=\"$PATH:{}\"", install_dir_str);
 
-    if !profile_content.contains(&export_line) {
-        println!("ℹ️ Directory was not in PATH.");
-        return Ok(());
+    for profile_name in &[&rc_file, &profile_file] {
+        let profile_path = home_dir.join(profile_name);
+        if !profile_path.exists() {
+            continue;
+        }
+
+        let profile_content =
+            fs::read_to_string(&profile_path).context("Failed to read shell profile")?;
+
+        if !profile_content.contains(&export_line) {
+            continue;
+        }
+
+        let new_content: String = profile_content
+            .lines()
+            .filter(|line| !line.contains(&export_line) && !line.contains("# Wallp"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        fs::write(&profile_path, new_content).context("Failed to write shell profile")?;
     }
 
-    let new_content: String = profile_content
-        .lines()
-        .filter(|line| !line.contains(&export_line) && !line.contains("# Wallp"))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    fs::write(&profile_path, new_content).context("Failed to write shell profile")?;
     println!("✅ Removed from PATH.");
     println!(
         "ℹ️ Restart your terminal or run 'source {}' to apply changes.",
-        shell_profile
+        rc_file
     );
 
     Ok(())
@@ -713,42 +728,44 @@ fn remove_from_path_unix() -> Result<()> {
     let data_dir = AppData::get_data_dir()?;
     let install_dir_str = data_dir.to_str().context("Invalid path")?;
 
-    let shell_profile = if std::env::var("ZSH_VERSION").is_ok() {
-        ".zshrc"
+    let shell = get_shell_name();
+    let (rc_file, profile_file) = if shell == "zsh" {
+        (".zshrc".to_string(), ".zprofile".to_string())
     } else {
-        ".bashrc"
+        (".bashrc".to_string(), ".bash_profile".to_string())
     };
 
-    let home_dir = directories::BaseDirs::new()
-        .context("Failed to get home directory")?
-        .home_dir();
-    let profile_path = home_dir.join(shell_profile);
+    let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
+    let home_dir = base_dirs.home_dir().to_path_buf();
 
-    if !profile_path.exists() {
-        println!("ℹ️ Shell profile not found.");
-        return Ok(());
-    }
-
-    let profile_content =
-        fs::read_to_string(&profile_path).context("Failed to read shell profile")?;
     let export_line = format!("export PATH=\"$PATH:{}\"", install_dir_str);
 
-    if !profile_content.contains(&export_line) {
-        println!("ℹ️ Directory was not in PATH.");
-        return Ok(());
+    for profile_name in &[&rc_file, &profile_file] {
+        let profile_path = home_dir.join(profile_name);
+        if !profile_path.exists() {
+            continue;
+        }
+
+        let profile_content =
+            fs::read_to_string(&profile_path).context("Failed to read shell profile")?;
+
+        if !profile_content.contains(&export_line) {
+            continue;
+        }
+
+        let new_content: String = profile_content
+            .lines()
+            .filter(|line| !line.contains(&export_line) && !line.contains("# Wallp"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        fs::write(&profile_path, new_content).context("Failed to write shell profile")?;
     }
 
-    let new_content: String = profile_content
-        .lines()
-        .filter(|line| !line.contains(&export_line) && !line.contains("# Wallp"))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    fs::write(&profile_path, new_content).context("Failed to write shell profile")?;
     println!("✅ Removed from PATH.");
     println!(
         "ℹ️ Restart your terminal or run 'source {}' to apply changes.",
-        shell_profile
+        rc_file
     );
 
     Ok(())
