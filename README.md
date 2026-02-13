@@ -52,8 +52,8 @@ Or install from source with `cargo install --git https://github.com/joaocastilho
 #### Option 1: Download Pre-built Binary (Recommended)
 
 1. Download the appropriate binary for your platform from the [releases page](https://github.com/joaocastilho/wallp/releases/latest)
-2. Place it in a directory that's in your PATH (or run `wallp init` to auto-install)
-3. Run `wallp init` to set up your Unsplash API key
+2. Place it in a directory that's in your PATH
+3. Run `wallp` - on first run, the setup wizard will start automatically
 
 #### Option 2: Build from Source
 
@@ -66,16 +66,16 @@ cd wallp
 cargo install --path .
 ```
 
-The executable will be available at `target/release/wallp` (or `wallp.exe` on Windows).
+The executable will be installed to your Cargo bin directory (`~/.cargo/bin/` or `%USERPROFILE%\.cargo\bin\`).
 
 ---
 
 ### First-Time Setup
 
-Run the interactive wizard to configure your Unsplash API key and preferences:
+On first run, Wallp will automatically launch the interactive setup wizard to configure your Unsplash API key and preferences. You can also run it manually at any time:
 
 ```bash
-wallp init
+wallp setup
 ```
 
 The wizard will:
@@ -91,16 +91,18 @@ The wizard will:
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `wallp` | Start the System Tray application (runs in background) | `wallp` |
-| `wallp init` | Run the setup wizard | `wallp init` |
+| `wallp` | Start the System Tray application (runs in background, or runs setup on first use) | `wallp` |
+| `wallp setup` | Run the interactive setup wizard | `wallp setup` |
 | `wallp next` | Go to next wallpaper (history-aware) | `wallp next` |
 | `wallp prev` | Go to previous wallpaper | `wallp prev` |
 | `wallp new` | Force fetch a brand new wallpaper | `wallp new` |
 | `wallp info` | Show metadata for current wallpaper | `wallp info` |
 | `wallp open` | Open current wallpaper in browser | `wallp open` |
-| `wallp folder` | Open local wallpaper storage folder | `wallp folder` |
+| `wallp folder` | Open local wallpapers folder | `wallp folder` |
 | `wallp status` | Check background scheduler status | `wallp status` |
-| `wallp config` | View or edit configuration | `wallp config` |
+| `wallp config` | View configuration | `wallp config` |
+| `wallp config edit` | Open config file in default editor | `wallp config edit` |
+| `wallp config set <key> <value>` | Set a config value | `wallp config set interval_minutes 60` |
 | `wallp list` | Show recent wallpaper history | `wallp list` |
 | `wallp uninstall` | Remove Wallp and all data | `wallp uninstall` |
 
@@ -115,11 +117,9 @@ Right-click the Wallp icon in your system tray to access:
 | ✨ **New Wallpaper** | Fetch a random image from Unsplash |
 | ⏭️ **Next** | Navigate forward in history |
 | ⏮️ **Previous** | Navigate backward in history |
-| 📂 **Open Folder** | View downloaded wallpapers |
-| ℹ️ **Info** | See current wallpaper details |
-| 🔗 **Open in Browser** | View on Unsplash.com |
-| ⏹️ **Pause/Resume** | Toggle automatic cycling |
-| 🔃 **Autostart** | Toggle launch on login |
+| 📂 **Open Folder** | View downloaded wallpapers folder |
+| ⚙️ **Open Config** | Open the configuration file |
+| ⬜ **Run at Startup** | Toggle automatic launch on login (checkbox) |
 | ❌ **Quit** | Exit the background process |
 
 ---
@@ -147,12 +147,14 @@ Configuration is stored in JSON format at your platform's standard data director
     ],
     "interval_minutes": 120,
     "aspect_ratio_tolerance": 0.1,
-    "retention_days": 7,
-    "logging_enabled": true,
-    "autostart": true
+    "retention_days": 7
   },
   "state": {
-    "current_index": 0
+    "is_running": true,
+    "next_run_at": "2024-01-01T00:00:00Z",
+    "last_run_at": "2024-01-01T00:00:00Z",
+    "current_wallpaper_id": null,
+    "current_history_index": 0
   },
   "history": []
 }
@@ -163,12 +165,10 @@ Configuration is stored in JSON format at your platform's standard data director
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `unsplash_access_key` | string | — | Your Unsplash API access key (required) |
-| `collections` | array | `[]` | Unsplash collection IDs to pull from |
+| `collections` | array | `["1053828", "3330448", "327760", "894"]` | Unsplash collection IDs to pull from |
 | `interval_minutes` | integer | 120 | Auto-cycle interval (0 = disabled) |
 | `aspect_ratio_tolerance` | float | 0.1 | Screen aspect ratio matching tolerance |
-| `retention_days` | integer | 7 | Days to keep old wallpapers |
-| `logging_enabled` | boolean | true | Enable debug logging |
-| `autostart` | boolean | true | Launch on system startup |
+| `retention_days` | integer | 7 | Days to keep old wallpapers (0 = keep forever) |
 
 ---
 
@@ -183,7 +183,7 @@ Configuration is stored in JSON format at your platform's standard data director
 | Platform | Dependencies |
 |----------|--------------|
 | 🪟 **Windows** | Visual Studio C++ Build Tools |
-| 🐧 **Linux** | `libgtk-3-dev`, `libappindicator3-dev`, `xdotool` |
+| 🐧 **Linux** | `libgtk-3-dev`, `libappindicator3-dev`, `xdotool`, `libxdo-dev` |
 | 🍎 **macOS** | Xcode Command Line Tools, `libnotify` (optional) |
 
 ### Build Commands
@@ -218,21 +218,7 @@ cargo fmt
 | **API rate limit exceeded** | Ensure you have a valid Unsplash Access Key |
 | **Wallpaper not changing** | Check if Wallp has permission to change desktop background |
 | **macOS notifications not working** | Install libnotify: `brew install libnotify` |
-
-### Logs
-
-Debug logs are stored in the `logs/` subdirectory of your config folder:
-
-```bash
-# Windows
-%APPDATA%\wallp\logs\
-
-# Linux
-~/.config/wallp/logs/
-
-# macOS
-~/Library/Application Support/wallp/logs/
-```
+| **First run doesn't start setup** | Run `wallp setup` manually |
 
 ---
 
