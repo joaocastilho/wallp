@@ -20,6 +20,63 @@ pub struct Config {
     pub retention_days: u64,
 }
 
+impl Config {
+    pub fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
+        match key {
+            "unsplash_access_key" => {
+                self.unsplash_access_key = value.to_string();
+                Ok(())
+            }
+            "interval_minutes" => {
+                let parsed = value.parse::<u64>().map_err(|e| e.to_string())?;
+                self.interval_minutes = parsed;
+                Ok(())
+            }
+            "aspect_ratio_tolerance" => {
+                let parsed = value.parse::<f64>().map_err(|e| e.to_string())?;
+                self.aspect_ratio_tolerance = parsed;
+                Ok(())
+            }
+            "retention_days" => {
+                let parsed = value.parse::<u64>().map_err(|e| e.to_string())?;
+                self.retention_days = parsed;
+                Ok(())
+            }
+            "collections" => {
+                self.collections = value
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                Ok(())
+            }
+            _ => Err(format!(
+                "Unknown key: {}. Available: unsplash_access_key, interval_minutes, aspect_ratio_tolerance, retention_days, collections",
+                key
+            )),
+        }
+    }
+
+    pub fn show(&self) {
+        println!("Current configuration:");
+        println!(
+            "  unsplash_access_key: {}",
+            if self.unsplash_access_key.is_empty() {
+                "(not set)"
+            } else {
+                "***"
+            }
+        );
+        println!("  collections: {}", self.collections.join(", "));
+        println!("  interval_minutes: {}", self.interval_minutes);
+        println!(
+            "  aspect_ratio_tolerance: {}",
+            self.aspect_ratio_tolerance
+        );
+        println!("  retention_days: {}", self.retention_days);
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct State {
     pub is_running: bool,
@@ -221,5 +278,41 @@ mod tests {
             app_data.config.unsplash_access_key,
             deserialized.config.unsplash_access_key
         );
+    }
+
+    #[test]
+    fn test_config_set_interval() {
+        let mut config = Config::default();
+        assert!(config.set("interval_minutes", "60").is_ok());
+        assert_eq!(config.interval_minutes, 60);
+    }
+
+    #[test]
+    fn test_config_set_retention_days() {
+        let mut config = Config::default();
+        assert!(config.set("retention_days", "30").is_ok());
+        assert_eq!(config.retention_days, 30);
+    }
+
+    #[test]
+    fn test_config_set_collections() {
+        let mut config = Config::default();
+        assert!(config.set("collections", "123,456,789").is_ok());
+        assert_eq!(config.collections, vec!["123", "456", "789"]);
+    }
+
+    #[test]
+    fn test_config_set_unknown_key() {
+        let mut config = Config::default();
+        let result = config.set("unknown_key", "value");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown key"));
+    }
+
+    #[test]
+    fn test_config_set_invalid_value() {
+        let mut config = Config::default();
+        let result = config.set("interval_minutes", "not_a_number");
+        assert!(result.is_err());
     }
 }

@@ -498,9 +498,21 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
                 open::that(path)?;
             }
             Some(ConfigAction::Set { key, value }) => {
-                println!("Setting {} to {} (Not implemented yet)", key, value);
+                let mut app_data = AppData::load()?;
+                match app_data.config.set(key, value) {
+                    Ok(()) => {
+                        app_data.save()?;
+                        println!("✅ Set {} to {}", key, value);
+                    }
+                    Err(e) => {
+                        anyhow::bail!("Failed to set config: {}", e);
+                    }
+                }
             }
-            None => println!("Use 'edit' or 'set'"),
+            None => {
+                let app_data = AppData::load()?;
+                app_data.config.show();
+            }
         },
         Commands::List => {
             let data = AppData::load()?;
