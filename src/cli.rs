@@ -252,7 +252,7 @@ fn broadcast_env_change() -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
+#[cfg(not(target_family = "unix"))]
 fn add_to_path_unix(_exe_path: &Path) -> Result<()> {
     Ok(())
 }
@@ -347,7 +347,7 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
     let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
     let home_dir = base_dirs.home_dir();
 
-    let export_line = format!(r#"export PATH="$PATH:{}")"#, escaped_path);
+    let export_line = format!(r#"export PATH="$PATH:{}""#, escaped_path);
 
     for profile_name in &[&rc_file, &profile_file] {
         let profile_path = home_dir.join(profile_name);
@@ -383,7 +383,7 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
             .context(format!("Failed to open {}", profile_name))?;
 
         use std::io::Write;
-        writeln!(file, r#"\n# Wallp\nexport PATH="$PATH:{}""#, escaped_path)
+        writeln!(file, "\n# Wallp\nexport PATH=\"$PATH:{}\"", escaped_path)
             .context(format!("Failed to write to {}", profile_name))?;
     }
 
@@ -546,10 +546,8 @@ fn handle_uninstall() -> Result<()> {
     }
     #[cfg(unix)]
     {
-        // Use more specific pattern and current user only to avoid killing unrelated processes
-        let _ = Command::new("pkill")
-            .args(&["-f", "-u", &std::process::id().to_string(), "^/.*/wallp$"])
-            .output();
+        // Use exact match to avoid killing unrelated processes
+        let _ = Command::new("pkill").args(&["-x", "wallp"]).output();
     }
 
     println!("Removing from startup...");
@@ -710,7 +708,7 @@ fn remove_from_path_unix() -> Result<()> {
     let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
     let home_dir = base_dirs.home_dir().to_path_buf();
 
-    let export_line = format!(r#"export PATH="$PATH:{}")"#, escaped_path);
+    let export_line = format!(r#"export PATH="$PATH:{}""#, escaped_path);
 
     for profile_name in &[&rc_file, &profile_file] {
         let profile_path = home_dir.join(profile_name);
@@ -747,7 +745,7 @@ fn remove_from_path_unix() -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(target_family = "unix"))]
 fn remove_from_path_unix() -> Result<()> {
     Ok(())
 }
