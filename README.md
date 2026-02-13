@@ -2,6 +2,8 @@
 
 # 🖼️ Wallp
 
+[![CI](https://github.com/joaocastilho/wallp/actions/workflows/ci.yml/badge.svg)](https://github.com/joaocastilho/wallp/actions/workflows/ci.yml)
+[![Release](https://github.com/joaocastilho/wallp/actions/workflows/release.yml/badge.svg)](https://github.com/joaocastilho/wallp/releases)
 [![Rust](https://img.shields.io/badge/Rust-000000?style=flat&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)]()
@@ -29,13 +31,35 @@ Wallp is a powerful yet minimal CLI and System Tray application that automatical
 
 ---
 
+## 📥 Download
+
+Get the latest pre-built binaries from [GitHub Releases](https://github.com/joaocastilho/wallp/releases/latest):
+
+| Platform | Download | Arch |
+|----------|----------|------|
+| 🪟 **Windows** | [wallp-windows-x64.exe](https://github.com/joaocastilho/wallp/releases/latest/download/wallp-windows-x64.exe) | x64 |
+| 🍎 **macOS** | [wallp-macos-arm64](https://github.com/joaocastilho/wallp/releases/latest/download/wallp-macos-arm64) | Apple Silicon |
+| 🐧 **Linux** | [wallp-linux-x64](https://github.com/joaocastilho/wallp/releases/latest/download/wallp-linux-x64) | x64 |
+
+Or install from source with `cargo install --git https://github.com/joaocastilho/wallp`
+
+---
+
 ## 🚀 Quick Start
 
 ### Installation
 
+#### Option 1: Download Pre-built Binary (Recommended)
+
+1. Download the appropriate binary for your platform from the [releases page](https://github.com/joaocastilho/wallp/releases/latest)
+2. Place it in a directory that's in your PATH (or run `wallp init` to auto-install)
+3. Run `wallp init` to set up your Unsplash API key
+
+#### Option 2: Build from Source
+
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/wallp
+git clone https://github.com/joaocastilho/wallp
 cd wallp
 
 # Build and install
@@ -46,8 +70,6 @@ The executable will be available at `target/release/wallp` (or `wallp.exe` on Wi
 
 ---
 
-## 🎮 Usage
-
 ### First-Time Setup
 
 Run the interactive wizard to configure your Unsplash API key and preferences:
@@ -57,7 +79,7 @@ wallp init
 ```
 
 The wizard will:
-1. 🔑 Prompt for your Unsplash Access Key
+1. 🔑 Prompt for your Unsplash Access Key ([Get one free](https://unsplash.com/developers))
 2. 🎯 Configure collection preferences
 3. ⏱️ Set cycling intervals
 4. 🚀 Enable autostart
@@ -78,6 +100,9 @@ The wizard will:
 | `wallp open` | Open current wallpaper in browser | `wallp open` |
 | `wallp folder` | Open local wallpaper storage folder | `wallp folder` |
 | `wallp status` | Check background scheduler status | `wallp status` |
+| `wallp config` | View or edit configuration | `wallp config` |
+| `wallp list` | Show recent wallpaper history | `wallp list` |
+| `wallp uninstall` | Remove Wallp and all data | `wallp uninstall` |
 
 ---
 
@@ -94,6 +119,7 @@ Right-click the Wallp icon in your system tray to access:
 | ℹ️ **Info** | See current wallpaper details |
 | 🔗 **Open in Browser** | View on Unsplash.com |
 | ⏹️ **Pause/Resume** | Toggle automatic cycling |
+| 🔃 **Autostart** | Toggle launch on login |
 | ❌ **Quit** | Exit the background process |
 
 ---
@@ -146,7 +172,7 @@ Configuration is stored in JSON format at your platform's standard data director
 
 ---
 
-## 🛠️ Requirements
+## 🛠️ Development
 
 ### Prerequisites
 
@@ -157,8 +183,27 @@ Configuration is stored in JSON format at your platform's standard data director
 | Platform | Dependencies |
 |----------|--------------|
 | 🪟 **Windows** | Visual Studio C++ Build Tools |
-| 🐧 **Linux** | `libgtk-3-dev`, `libappindicator3-dev` |
-| 🍎 **macOS** | Xcode Command Line Tools |
+| 🐧 **Linux** | `libgtk-3-dev`, `libappindicator3-dev`, `xdotool` |
+| 🍎 **macOS** | Xcode Command Line Tools, `libnotify` (optional) |
+
+### Build Commands
+
+```bash
+# Development build
+cargo build
+
+# Release build
+cargo build --release
+
+# Run tests
+cargo test
+
+# Run clippy
+cargo clippy --all-targets -- -D warnings
+
+# Format code
+cargo fmt
+```
 
 ---
 
@@ -167,9 +212,12 @@ Configuration is stored in JSON format at your platform's standard data director
 | Issue | Solution |
 |-------|----------|
 | **Build fails on Windows** | Install "Desktop development with C++" via Visual Studio Build Tools |
+| **Build fails on Linux** | Install `libgtk-3-dev`, `libappindicator3-dev`, `xdotool`, `libxdo-dev` |
+| **Build fails on macOS** | Install Xcode Command Line Tools: `xcode-select --install` |
 | **System tray not visible** | Check if your desktop environment supports system tray icons |
 | **API rate limit exceeded** | Ensure you have a valid Unsplash Access Key |
 | **Wallpaper not changing** | Check if Wallp has permission to change desktop background |
+| **macOS notifications not working** | Install libnotify: `brew install libnotify` |
 
 ### Logs
 
@@ -194,9 +242,11 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
+3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
+
+Please ensure your code passes `cargo fmt` and `cargo clippy` before submitting.
 
 ---
 
@@ -210,6 +260,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Made with ❤️ and 🦀 Rust**
 
-[Report Bug](https://github.com/your-username/wallp/issues) · [Request Feature](https://github.com/your-username/wallp/issues)
+[Report Bug](https://github.com/joaocastilho/wallp/issues) · [Request Feature](https://github.com/joaocastilho/wallp/issues) · [Releases](https://github.com/joaocastilho/wallp/releases)
 
 </div>
