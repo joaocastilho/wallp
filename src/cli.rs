@@ -267,6 +267,45 @@ fn get_shell_name() -> &'static str {
         .unwrap_or("bash")
 }
 
+#[cfg(test)]
+pub fn get_shell_files(shell: &str) -> (String, String) {
+    if shell == "zsh" {
+        (".zshrc".to_string(), ".zprofile".to_string())
+    } else {
+        (".bashrc".to_string(), ".bash_profile".to_string())
+    }
+}
+
+#[cfg(test)]
+pub fn create_export_line(install_dir: &str) -> String {
+    format!("export PATH=\"$PATH:{}\"", install_dir)
+}
+
+#[cfg(test)]
+pub fn add_path_to_profile_content(content: &str, install_dir: &str) -> String {
+    let export_line = create_export_line(install_dir);
+    if content.contains(&export_line) {
+        return content.to_string();
+    }
+    format!("{}\n# Wallp\n{}\n", content, export_line)
+}
+
+#[cfg(test)]
+pub fn remove_path_from_profile_content(content: &str, install_dir: &str) -> String {
+    let export_line = create_export_line(install_dir);
+    content
+        .lines()
+        .filter(|line| !line.contains(&export_line) && !line.contains("# Wallp"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(test)]
+pub fn is_path_in_profile(content: &str, install_dir: &str) -> bool {
+    let export_line = create_export_line(install_dir);
+    content.contains(&export_line)
+}
+
 #[cfg(target_os = "macos")]
 fn add_to_path_unix(exe_path: &Path) -> Result<()> {
     let install_dir = exe_path
@@ -774,4 +813,125 @@ fn remove_from_path_unix() -> Result<()> {
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn remove_from_path_unix() -> Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_shell_files_bash() {
+        let (rc, profile) = get_shell_files("bash");
+        assert_eq!(rc, ".bashrc");
+        assert_eq!(profile, ".bash_profile");
+    }
+
+    #[test]
+    fn test_get_shell_files_zsh() {
+        let (rc, profile) = get_shell_files("zsh");
+        assert_eq!(rc, ".zshrc");
+        assert_eq!(profile, ".zprofile");
+    }
+
+    #[test]
+    fn test_create_export_line() {
+        let line = create_export_line("/home/user/.config/wallp");
+        assert_eq!(line, r#"export PATH="$PATH:/home/user/.config/wallp""#);
+    }
+
+    #[test]
+    fn test_create_export_line_with_spaces() {
+        let line = create_export_line("/home/user/My Documents/wallp");
+        assert_eq!(line, r#"export PATH="$PATH:/home/user/My Documents/wallp""#);
+    }
+
+    #[test]
+    fn test_add_path_to_profile_empty() {
+        let result = add_path_to_profile_content("", "/home/user/.config/wallp");
+        assert!(result.contains(r#"export PATH="$PATH:/home/user/.config/wallp""#));
+        assert!(result.contains("# Wallp"));
+    }
+
+    #[test]
+    fn test_add_path_to_profile_existing() {
+        let existing = r#"export PATH="$PATH:/usr/bin"
+export EDITOR=vim"#;
+        let result = add_path_to_profile_content(existing, "/home/user/.config/wallp");
+        assert!(result.contains(r#"export PATH="$PATH:/usr/bin""#));
+        assert!(result.contains(r#"export PATH="$PATH:/home/user/.config/wallp""#));
+        assert!(result.contains("# Wallp"));
+    }
+
+    #[test]
+    fn test_add_path_to_profile_already_exists() {
+        let existing = r#"export PATH="$PATH:/home/user/.config/wallp"
+export EDITOR=vim"#;
+        let result = add_path_to_profile_content(existing, "/home/user/.config/wallp");
+        let count = result
+            .matches("export PATH=\"$PATH:/home/user/.config/wallp\"")
+            .count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_remove_path_from_profile() {
+        let existing = r#"export PATH="$PATH:/usr/bin"
+# Wallp
+export PATH="$PATH:/home/user/.config/wallp"
+export EDITOR=vim"#;
+        let result = remove_path_from_profile_content(existing, "/home/user/.config/wallp");
+        assert!(!result.contains("/home/user/.config/wallp"));
+        assert!(!result.contains("# Wallp"));
+        assert!(result.contains("/usr/bin"));
+        assert!(result.contains("EDITOR=vim"));
+    }
+
+    #[test]
+    fn test_remove_path_not_present() {
+        let existing = r#"export PATH="$PATH:/usr/bin"
+export EDITOR=vim"#;
+        let result = remove_path_from_profile_content(existing, "/home/user/.config/wallp");
+        assert_eq!(result, existing);
+    }
+
+    #[test]
+    fn test_is_path_in_profile_true() {
+        let content = r#"export PATH="$PATH:/home/user/.config/wallp"
+export EDITOR=vim"#;
+        assert!(is_path_in_profile(content, "/home/user/.config/wallp"));
+    }
+
+    #[test]
+    fn test_is_path_in_profile_false() {
+        let content = r#"export PATH="$PATH:/usr/bin"
+export EDITOR=vim"#;
+        assert!(!is_path_in_profile(content, "/home/user/.config/wallp"));
+    }
+
+    #[test]
+    fn test_is_path_in_profile_partial_match() {
+        let content = r#"export PATH="$PATH:/home/user/.config/wallp2""#;
+        assert!(!is_path_in_profile(content, "/home/user/.config/wallp"));
+    }
+
+    #[test]
+    fn test_path_with_spaces() {
+        let line = create_export_line("/home/user/My Documents/wallp");
+        let content = "";
+        let result = add_path_to_profile_content(content, "/home/user/My Documents/wallp");
+        assert!(result.contains(&line));
+    }
+
+    #[test]
+    fn test_multiple_wallp_entries() {
+        let existing = r#"# Wallp
+export PATH="$PATH:/home/user/.config/wallp"
+# Wallp
+export PATH="$PATH:/home/user/.config/wallp"
+export EDITOR=vim"#;
+        let result = remove_path_from_profile_content(existing, "/home/user/.config/wallp");
+        assert!(!result.contains("/home/user/.config/wallp"));
+        assert!(!result.contains("# Wallp"));
+        assert!(result.contains("EDITOR=vim"));
+    }
 }
