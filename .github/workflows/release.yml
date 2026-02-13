@@ -47,7 +47,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.binary_name }}
-          path: target/release/${{ matrix.binary_name }}
+          path: target/${{ matrix.target }}/release/${{ matrix.binary_name }}
           retention-days: 1
 
   release:
