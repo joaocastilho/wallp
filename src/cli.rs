@@ -4,17 +4,9 @@ use crate::{Commands, ConfigAction};
 use anyhow::{Context, Result};
 use dialoguer::{Confirm, Input};
 use std::env;
-use std::ffi::CString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-
-#[cfg(windows)]
-use windows::Win32::Foundation::WPARAM;
-#[cfg(windows)]
-use windows::Win32::UI::WindowsAndMessaging::{
-    HWND_BROADCAST, SMTO_ABORTIFHUNG, SendMessageTimeoutA, WM_SETTINGCHANGE,
-};
 
 fn get_exe_name() -> &'static str {
     #[cfg(target_os = "windows")]
@@ -187,8 +179,8 @@ pub fn init_wizard() -> Result<()> {
 
 #[cfg(target_os = "windows")]
 fn add_to_path_windows(exe_path: &Path) -> Result<()> {
-    use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
 
     let install_dir = exe_path
         .parent()
@@ -219,27 +211,21 @@ fn add_to_path_windows(exe_path: &Path) -> Result<()> {
     env.set_value("Path", &new_path)?;
     println!("✅ Added {install_dir_str} to PATH.");
 
-    let _ = broadcast_env_change();
-    println!("ℹ️ System notified of PATH change.");
-
-    Ok(())
-}
-
-fn broadcast_env_change() -> Result<()> {
     #[cfg(target_os = "windows")]
     {
+        use std::ffi::CString;
         let param =
             CString::new("Environment").context("Failed to create CString for broadcast")?;
         // SAFETY: SendMessageTimeoutA is a Windows API that broadcasts a message to all top-level windows.
         // The LPARAM is a valid pointer to a null-terminated CString that lives for the duration of the call.
         // This is the standard Windows mechanism for notifying applications of environment changes.
         unsafe {
-            let result = SendMessageTimeoutA(
-                HWND_BROADCAST,
-                WM_SETTINGCHANGE,
-                WPARAM(0),
+            let result = windows::Win32::UI::WindowsAndMessaging::SendMessageTimeoutA(
+                windows::Win32::UI::WindowsAndMessaging::HWND_BROADCAST,
+                windows::Win32::UI::WindowsAndMessaging::WM_SETTINGCHANGE,
+                windows::Win32::Foundation::WPARAM(0),
                 windows::Win32::Foundation::LPARAM(param.as_ptr() as isize),
-                SMTO_ABORTIFHUNG,
+                windows::Win32::UI::WindowsAndMessaging::SMTO_ABORTIFHUNG,
                 5000,
                 None,
             );
@@ -247,7 +233,9 @@ fn broadcast_env_change() -> Result<()> {
                 eprintln!("Warning: Could not notify system of PATH change");
             }
         }
+        println!("ℹ️ System notified of PATH change.");
     }
+
     Ok(())
 }
 
@@ -269,7 +257,11 @@ fn get_shell_name() -> &'static str {
         .iter()
         .any(|path| PathBuf::from(format!("{path}/{shell}")).exists());
 
-    if shell_exists { shell } else { "sh" }
+    if shell_exists {
+        shell
+    } else {
+        "sh"
+    }
 }
 
 #[cfg(test)]
@@ -342,7 +334,7 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
     let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
     let home_dir = base_dirs.home_dir();
 
-    let export_line = format!(r#"export PATH="$PATH:{}""#, escaped_path);
+    let export_line = format!(r#"export PATH="$PATH:{escaped_path}""#);
 
     for profile_name in &[&rc_file, &profile_file] {
         let profile_path = home_dir.join(profile_name);
@@ -351,7 +343,7 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
         if profile_path.exists() {
             let metadata = fs::metadata(&profile_path)?;
             if metadata.permissions().readonly() {
-                println!("⚠️  Profile {} is read-only, skipping", profile_name);
+                println!("⚠️  Profile {profile_name} is read-only, skipping");
                 continue;
             }
         }
@@ -367,9 +359,11 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
             .lines()
             .any(|line| line.trim() == export_line)
         {
-            println!("ℹ️ Directory already in PATH ({})", profile_name);
+            println!("ℹ️ Directory already in PATH ({profile_name})");
             continue;
         }
+
+        use std::io::Write;
 
         let mut file = fs::OpenOptions::new()
             .create(true)
@@ -377,7 +371,6 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
             .open(&profile_path)
             .context(format!("Failed to open {profile_name}"))?;
 
-        use std::io::Write;
         writeln!(file, "\n# Wallp\nexport PATH=\"$PATH:{escaped_path}\"")
             .context(format!("Failed to write to {profile_name}"))?;
     }
@@ -562,7 +555,7 @@ fn handle_uninstall() -> Result<()> {
     #[cfg(unix)]
     {
         // Use exact match to avoid killing unrelated processes
-        let _ = Command::new("pkill").args(&["-x", "wallp"]).output();
+        let _ = Command::new("pkill").args(["-x", "wallp"]).output();
     }
 
     println!("Removing from startup...");
@@ -654,7 +647,7 @@ fn handle_uninstall() -> Result<()> {
   fi
 done"#
             );
-            let _ = Command::new("sh").args(&["-c", &script]).spawn();
+            let _ = Command::new("sh").args(["-c", &script]).spawn();
         }
 
         println!("✅ Uninstall complete. The executable will be removed shortly.");
@@ -667,8 +660,8 @@ done"#
 
 #[cfg(target_os = "windows")]
 fn remove_from_path_windows() -> Result<()> {
-    use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
 
     // Remove BOTH current dir and installed dir if present, just to be sure
     let current_exe = env::current_exe()?;
@@ -702,7 +695,23 @@ fn remove_from_path_windows() -> Result<()> {
     env.set_value("Path", &new_path)?;
     println!("✅ Removed from PATH.");
 
-    let _ = broadcast_env_change();
+    #[cfg(target_os = "windows")]
+    {
+        use std::ffi::CString;
+        if let Ok(param) = CString::new("Environment") {
+            unsafe {
+                let _ = windows::Win32::UI::WindowsAndMessaging::SendMessageTimeoutA(
+                    windows::Win32::UI::WindowsAndMessaging::HWND_BROADCAST,
+                    windows::Win32::UI::WindowsAndMessaging::WM_SETTINGCHANGE,
+                    windows::Win32::Foundation::WPARAM(0),
+                    windows::Win32::Foundation::LPARAM(param.as_ptr() as isize),
+                    windows::Win32::UI::WindowsAndMessaging::SMTO_ABORTIFHUNG,
+                    5000,
+                    None,
+                );
+            }
+        }
+    }
 
     Ok(())
 }
@@ -723,7 +732,7 @@ fn remove_from_path_unix() -> Result<()> {
     let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
     let home_dir = base_dirs.home_dir().to_path_buf();
 
-    let export_line = format!(r#"export PATH="$PATH:{}""#, escaped_path);
+    let export_line = format!(r#"export PATH="$PATH:{escaped_path}""#);
 
     for profile_name in &[&rc_file, &profile_file] {
         let profile_path = home_dir.join(profile_name);

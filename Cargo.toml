@@ -5,13 +5,12 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.100"
-atty = "0.2"
 auto-launch = "0.6.0"
 chrono = { version = "0.4.43", features = ["serde"] }
 clap = { version = "4.5.57", features = ["derive"] }
 dialoguer = "0.12.0"
 directories = "6.0.0"
-image = "0.25.9"
+image = "0.25"
 open = "5.3.3"
 reqwest = { version = "0.13.1", features = ["json", "query"] }
 serde = { version = "1.0.228", features = ["derive"] }
