@@ -17,15 +17,15 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             binary_name: wallp.exe
-            artifact_name: wallp-windows
+            artifact_name: wallp-windows-x64
           - os: macos-latest
             target: aarch64-apple-darwin
             binary_name: wallp
-            artifact_name: wallp-macos
+            artifact_name: wallp-macos-arm64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             binary_name: wallp
-            artifact_name: wallp-linux
+            artifact_name: wallp-linux-x64
 
     runs-on: ${{ matrix.os }}
 
