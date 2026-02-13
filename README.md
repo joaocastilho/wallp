@@ -105,7 +105,7 @@ Configuration is stored in JSON format at your platform's standard data director
 | Platform | Config Path |
 |----------|-------------|
 | 🪟 **Windows** | `%APPDATA%\wallp\wallp.json` |
-| 🐧 **Linux** | `~/.local/share/wallp/wallp.json` |
+| 🐧 **Linux** | `~/.config/wallp/wallp.json` |
 | 🍎 **macOS** | `~/Library/Application Support/wallp/wallp.json` |
 
 ### Example Configuration
@@ -180,7 +180,7 @@ Debug logs are stored in the `logs/` subdirectory of your config folder:
 %APPDATA%\wallp\logs\
 
 # Linux
-~/.local/share/wallp/logs/
+~/.config/wallp/logs/
 
 # macOS
 ~/Library/Application Support/wallp/logs/
