@@ -34,14 +34,12 @@ fn set_build_timestamp() {
 
     // Format as human-readable date/time (UTC)
     let datetime = format_timestamp(timestamp);
-    println!("cargo:rustc-env=BUILD_DATETIME={}", datetime);
+    println!("cargo:rustc-env=BUILD_DATETIME={datetime}");
 }
 
 fn format_timestamp(timestamp: u64) -> String {
     // Manual formatting of Unix timestamp to avoid dependencies
     const SECONDS_PER_DAY: u64 = 86400;
-    const DAYS_PER_YEAR: u64 = 365;
-    const DAYS_PER_4YEARS: u64 = 1461; // 365*4 + 1
 
     let days_since_epoch = timestamp / SECONDS_PER_DAY;
     let seconds_of_day = timestamp % SECONDS_PER_DAY;
@@ -79,7 +77,7 @@ fn format_timestamp(timestamp: u64) -> String {
 }
 
 fn is_leap_year(year: u64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 fn days_to_month_day(days: u64, is_leap: bool) -> (u64, u64) {

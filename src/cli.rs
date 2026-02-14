@@ -78,40 +78,20 @@ pub fn is_initialized() -> bool {
 pub fn setup_wizard() -> Result<()> {
     println!("Welcome to Wallp Setup Wizard!");
     println!("------------------------------");
+    println!();
 
-    let current_exe = env::current_exe()?;
-
-    // Platform-specific installation paths
-    #[cfg(target_os = "linux")]
-    let (install_dir, target_exe) = {
-        let binary_dir = AppData::get_binary_dir()?;
-        let target = binary_dir.join(get_exe_name());
-        (binary_dir, target)
-    };
-
-    #[cfg(not(target_os = "linux"))]
-    let (install_dir, target_exe) = {
-        let data_dir = AppData::get_data_dir()?;
-        let target = data_dir.join(get_exe_name());
-        (data_dir, target)
-    };
-
-    // Ensure all necessary directories exist
-    if !install_dir.exists() {
-        fs::create_dir_all(&install_dir).context("Failed to create installation directory")?;
+    // First: Ask if user wants to install
+    if !Confirm::new()
+        .with_prompt("Do you want to install Wallp?")
+        .default(true)
+        .interact()?
+    {
+        println!("Setup cancelled.");
+        return Ok(());
     }
 
-    // Ensure config directory exists
-    let config_dir = AppData::get_config_dir()?;
-    if !config_dir.exists() {
-        fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
-    }
-
-    // Ensure data directory exists
-    let data_dir = AppData::get_data_dir()?;
-    if !data_dir.exists() {
-        fs::create_dir_all(&data_dir).context("Failed to create data directory")?;
-    }
+    // Load existing config if any
+    let mut app_data = AppData::load().unwrap_or_default();
 
     // Check if already initialized
     let config_path = AppData::get_config_path()?;
@@ -127,42 +107,6 @@ pub fn setup_wizard() -> Result<()> {
         println!("Setup cancelled.");
         return Ok(());
     }
-
-    // Copy to installation directory if not already there
-    let current_exe_canonical = current_exe.canonicalize().unwrap_or(current_exe.clone());
-    let target_exe_canonical = target_exe.canonicalize().ok();
-
-    let is_installed = target_exe_canonical.is_some_and(|t| t == current_exe_canonical);
-
-    let final_exe_path = if is_installed {
-        println!("ℹ️  Already running from installation directory.");
-        current_exe
-    } else {
-        println!("Installing Wallp to {}", target_exe.display());
-        match fs::copy(&current_exe, &target_exe) {
-            Ok(_) => {
-                #[cfg(target_os = "linux")]
-                println!("✅ Copied executable to ~/.local/bin/.");
-                #[cfg(target_os = "windows")]
-                println!("✅ Copied executable to Local AppData.");
-                #[cfg(target_os = "macos")]
-                println!("✅ Copied executable to Application Support.");
-
-                // Give the filesystem a moment to settle
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                target_exe
-            }
-            Err(e) => {
-                println!("⚠️  Failed to copy executable: {e}. Proceeding with current executable.");
-                current_exe
-            }
-        }
-    };
-
-    // Canonicalize the final path
-    let final_exe_path = final_exe_path.canonicalize().unwrap_or(final_exe_path);
-
-    let mut app_data = AppData::load()?; // Load existing or default
 
     println!();
     println!("📋 Configuration");
@@ -306,14 +250,7 @@ pub fn setup_wizard() -> Result<()> {
         }
     };
 
-    // Update config
-    app_data.config.unsplash_access_key = access_key;
-    app_data.config.interval_minutes = interval;
-    app_data.config.collections = new_collections;
-    app_data.config.custom_collections = updated_custom_collections;
-    app_data.config.retention_days = retention_days;
-    app_data.save()?;
-
+    // Ask about system integration
     println!();
     println!("🔧 System Integration");
 
@@ -322,6 +259,95 @@ pub fn setup_wizard() -> Result<()> {
         .default(true)
         .interact()
         .context("Failed to get autostart confirmation")?;
+
+    let add_to_path = Confirm::new()
+        .with_prompt("Add Wallp to PATH?")
+        .default(true)
+        .interact()?;
+
+    // Ask to proceed with installation
+    println!();
+    if !Confirm::new()
+        .with_prompt("Ready to install. Proceed with installation?")
+        .default(true)
+        .interact()?
+    {
+        println!("Setup cancelled.");
+        return Ok(());
+    }
+
+    // ===== ACTUAL INSTALLATION STARTS HERE =====
+
+    let current_exe = env::current_exe()?;
+
+    // Platform-specific installation paths
+    #[cfg(target_os = "linux")]
+    let (install_dir, target_exe) = {
+        let binary_dir = AppData::get_binary_dir()?;
+        let target = binary_dir.join(get_exe_name());
+        (binary_dir, target)
+    };
+
+    #[cfg(not(target_os = "linux"))]
+    let (install_dir, target_exe) = {
+        let data_dir = AppData::get_data_dir()?;
+        let target = data_dir.join(get_exe_name());
+        (data_dir, target)
+    };
+
+    // Ensure all necessary directories exist
+    if !install_dir.exists() {
+        fs::create_dir_all(&install_dir).context("Failed to create installation directory")?;
+    }
+
+    // Ensure config directory exists
+    let config_dir = AppData::get_config_dir()?;
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
+    }
+
+    // Ensure data directory exists
+    let data_dir = AppData::get_data_dir()?;
+    if !data_dir.exists() {
+        fs::create_dir_all(&data_dir).context("Failed to create data directory")?;
+    }
+
+    // Copy to installation directory if not already there
+    let current_exe_canonical = current_exe.canonicalize().unwrap_or(current_exe.clone());
+    let target_exe_canonical = target_exe.canonicalize().ok();
+
+    let is_installed = target_exe_canonical.is_some_and(|t| t == current_exe_canonical);
+
+    let final_exe_path = if is_installed {
+        println!("ℹ️  Already running from installation directory.");
+        current_exe
+    } else {
+        println!("Installing Wallp to {}", target_exe.display());
+        match fs::copy(&current_exe, &target_exe) {
+            Ok(_) => {
+                println!("✅ Wallp copied to installation directory.");
+
+                // Give the filesystem a moment to settle
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                target_exe
+            }
+            Err(e) => {
+                println!("⚠️  Failed to copy executable: {e}. Proceeding with current executable.");
+                current_exe
+            }
+        }
+    };
+
+    // Canonicalize the final path
+    let final_exe_path = final_exe_path.canonicalize().unwrap_or(final_exe_path);
+
+    // Save configuration
+    app_data.config.unsplash_access_key = access_key;
+    app_data.config.interval_minutes = interval;
+    app_data.config.collections = new_collections;
+    app_data.config.custom_collections = updated_custom_collections;
+    app_data.config.retention_days = retention_days;
+    app_data.save()?;
 
     // Setup Autostart
     if enable_autostart {
@@ -332,33 +358,20 @@ pub fn setup_wizard() -> Result<()> {
         println!("ℹ️ Autostart disabled.");
     }
 
-    // Add to PATH (Linux only - binary is already in PATH location)
-    #[cfg(target_os = "linux")]
-    if Confirm::new()
-        .with_prompt("Add ~/.local/bin to PATH?")
-        .default(true)
-        .interact()?
-    {
-        add_local_bin_to_path()?;
-    }
-
-    // Add to PATH (Windows/macOS - add install directory)
-    #[cfg(target_os = "windows")]
-    if Confirm::new()
-        .with_prompt("Add Wallp directory to system PATH?")
-        .default(true)
-        .interact()?
-    {
-        add_to_path_windows(&final_exe_path)?;
-    }
-
-    #[cfg(target_os = "macos")]
-    if Confirm::new()
-        .with_prompt("Add Wallp directory to PATH?")
-        .default(true)
-        .interact()?
-    {
-        add_to_path_unix(&final_exe_path)?;
+    // Add to PATH
+    if add_to_path {
+        #[cfg(target_os = "linux")]
+        {
+            add_local_bin_to_path()?;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            add_to_path_windows(&final_exe_path)?;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            add_to_path_unix(&final_exe_path)?;
+        }
     }
 
     println!();
@@ -406,7 +419,7 @@ fn add_to_path_windows(exe_path: &Path) -> Result<()> {
         .iter()
         .any(|p| p.eq_ignore_ascii_case(install_dir_str))
     {
-        println!("ℹ️ Directory already in PATH.");
+        println!("ℹ️ Directory already in PATH");
         return Ok(());
     }
 
@@ -418,7 +431,7 @@ fn add_to_path_windows(exe_path: &Path) -> Result<()> {
     };
 
     env.set_value("Path", &new_path)?;
-    println!("✅ Added to PATH (restart terminal to use)");
+    println!("✅ Added to PATH (restart terminal to apply changes)");
 
     Ok(())
 }
@@ -497,6 +510,7 @@ pub fn is_path_in_profile(content: &str, install_dir: &str) -> bool {
 }
 
 #[cfg(unix)]
+#[allow(dead_code)]
 fn add_to_path_unix(exe_path: &Path) -> Result<()> {
     use std::io::Write;
 
@@ -555,7 +569,7 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
             .context(format!("Failed to write to {profile_name}"))?;
     }
 
-    println!("✅ Added to PATH (restart terminal or run 'source {rc_file}')");
+    println!("✅ Added to PATH (restart terminal to apply changes)");
 
     Ok(())
 }
@@ -578,7 +592,7 @@ fn add_local_bin_to_path() -> Result<()> {
     let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
     let home_dir = base_dirs.home_dir();
 
-    let export_line = format!(r#"export PATH="$PATH:{escaped_path}"")"#);
+    let export_line = format!(r#"export PATH="$PATH:{escaped_path}""#);
 
     for profile_name in &[&rc_file, &profile_file] {
         let profile_path = home_dir.join(profile_name);
@@ -603,7 +617,7 @@ fn add_local_bin_to_path() -> Result<()> {
             .lines()
             .any(|line| line.trim() == export_line)
         {
-            println!("ℹ️ Directory already in PATH ({profile_name})");
+            println!("ℹ️ Directory already in PATH");
             continue;
         }
 
@@ -617,7 +631,7 @@ fn add_local_bin_to_path() -> Result<()> {
             .context(format!("Failed to write to {profile_name}"))?;
     }
 
-    println!("✅ Added to PATH (restart terminal or run 'source {rc_file}')");
+    println!("✅ Added to PATH (restart terminal to apply changes)");
 
     Ok(())
 }
@@ -1156,6 +1170,7 @@ fn remove_from_path_windows() -> Result<()> {
 }
 
 #[cfg(unix)]
+#[allow(dead_code)]
 fn remove_from_path_unix() -> Result<()> {
     let data_dir = AppData::get_data_dir()?;
     let install_dir_str = data_dir.to_str().context("Invalid path")?;
