@@ -8,6 +8,13 @@ fn test_cli_help() {
     cmd.assert().success();
 }
 
+#[test]
+fn test_cli_settings() {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_wallp"));
+    cmd.arg("settings");
+    cmd.assert().success();
+}
+
 // Interactive tests removed due to flakiness in test environment
 // fn test_init_interactive_simulated() ...
 // fn test_uninstall_interactive_cancel() ...

@@ -2,7 +2,6 @@ use crate::config::AppData;
 use crate::manager;
 use crate::scheduler;
 use anyhow::Context;
-#[cfg(not(windows))]
 use notify_rust::Notification;
 use std::process::ExitCode;
 use tao::event_loop::{ControlFlow, EventLoop};
@@ -12,37 +11,6 @@ use tray_icon::{
     TrayIconBuilder,
 };
 
-#[allow(clippy::collapsible_if)]
-#[cfg(windows)]
-fn show_toast(title: &str, body: &str) {
-    use windows::Data::Xml::Dom::XmlDocument;
-    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
-
-    #[allow(clippy::uninlined_format_args)]
-    let xml = format!(
-        r#"<toast>
-            <visual>
-                <binding template="ToastText02">
-                    <text id="1">{}</text>
-                    <text id="2">{}</text>
-                </binding>
-            </visual>
-        </toast>"#,
-        title, body
-    );
-
-    if let Ok(xml_doc) = XmlDocument::new() {
-        let _ = xml_doc.LoadXml(&windows::core::HSTRING::from(&xml));
-
-        if let Ok(toast) = ToastNotification::CreateToastNotification(&xml_doc)
-            && let Ok(notifier) = ToastNotificationManager::CreateToastNotifier()
-        {
-            let _ = notifier.Show(&toast);
-        }
-    }
-}
-
-#[cfg(not(windows))]
 fn show_toast(title: &str, body: &str) {
     let _ = Notification::new().summary(title).body(body).show();
 }
@@ -178,7 +146,6 @@ pub fn run() -> ExitCode {
                 if let Err(e) = result {
                     eprintln!("Failed to toggle autostart: {e}");
                     item_autostart.set_checked(!is_enabled);
-                    #[cfg(not(windows))]
                     let _ = Notification::new()
                         .summary("Wallp Error")
                         .body(&format!("Failed to toggle autostart: {e}"))
@@ -233,7 +200,6 @@ where
         Ok(rt) => {
             if let Err(e) = rt.block_on(f()) {
                 eprintln!("Tray action error: {e}");
-                #[cfg(not(windows))]
                 let _ = Notification::new()
                     .summary("Wallp Error")
                     .body(&e.to_string())

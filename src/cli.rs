@@ -78,39 +78,65 @@ pub fn is_initialized() -> bool {
     false
 }
 
+pub fn is_autostart_enabled() -> bool {
+    let Ok(current_exe) = std::env::current_exe() else {
+        return false;
+    };
+
+    let Some(exe_path) = current_exe.to_str() else {
+        return false;
+    };
+
+    #[cfg(target_os = "macos")]
+    let auto = auto_launch::AutoLaunchBuilder::new()
+        .set_app_name("Wallp")
+        .set_app_path(exe_path)
+        .set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent)
+        .build();
+
+    #[cfg(not(target_os = "macos"))]
+    let auto = auto_launch::AutoLaunchBuilder::new()
+        .set_app_name("Wallp")
+        .set_app_path(exe_path)
+        .build();
+
+    auto.map(|a| a.is_enabled().unwrap_or(false)).unwrap_or(false)
+}
+
 #[allow(clippy::too_many_lines)]
 pub fn setup_wizard() -> Result<()> {
-    println!("Welcome to Wallp Setup Wizard!");
-    println!("------------------------------");
-    println!();
+    let is_installed = is_initialized();
 
-    // First: Ask if user wants to install
-    if !Confirm::new()
-        .with_prompt("Do you want to install Wallp?")
-        .default(true)
-        .interact()?
-    {
-        println!("Setup cancelled.");
-        return Ok(());
+    if is_installed {
+        println!("Wallp Setup - Modify Settings");
+        println!("-----------------------------");
+        println!();
+
+        if !Confirm::new()
+            .with_prompt("Wallp is already installed. Do you want to modify settings?")
+            .default(false)
+            .interact()?
+        {
+            println!("No changes made.");
+            return Ok(());
+        }
+    } else {
+        println!("Welcome to Wallp Setup Wizard!");
+        println!("------------------------------");
+        println!();
+
+        if !Confirm::new()
+            .with_prompt("Do you want to install Wallp?")
+            .default(true)
+            .interact()?
+        {
+            println!("Setup cancelled.");
+            return Ok(());
+        }
     }
 
     // Load existing config if any
     let mut app_data = AppData::load().unwrap_or_default();
-
-    // Check if already initialized
-    let config_path = AppData::get_config_path()?;
-    let is_initialized = config_path.exists();
-
-    // If already initialized, confirm before overwriting
-    if is_initialized
-        && !Confirm::new()
-            .with_prompt("Wallp appears to be already installed. Run setup anyway?")
-            .default(false)
-            .interact()?
-    {
-        println!("Setup cancelled.");
-        return Ok(());
-    }
 
     println!();
     println!("📋 Configuration");
@@ -254,144 +280,173 @@ pub fn setup_wizard() -> Result<()> {
         }
     };
 
-    // Ask about system integration
+    // Ask about system integration (skip PATH if already installed)
     println!();
     println!("🔧 System Integration");
 
     let enable_autostart = Confirm::new()
         .with_prompt("Enable Autostart on Login?")
-        .default(true)
+        .default(is_autostart_enabled())
         .interact()
         .context("Failed to get autostart confirmation")?;
 
-    let add_to_path = Confirm::new()
-        .with_prompt("Add Wallp to PATH?")
-        .default(true)
-        .interact()?;
+    let add_to_path = if is_installed {
+        false
+    } else {
+        Confirm::new()
+            .with_prompt("Add Wallp to PATH?")
+            .default(true)
+            .interact()?
+    };
 
-    // Ask to proceed with installation
+    // Ask to proceed
     println!();
-    if !Confirm::new()
-        .with_prompt("Ready to install. Proceed with installation?")
-        .default(true)
-        .interact()?
-    {
-        println!("Setup cancelled.");
-        return Ok(());
-    }
-
-    // ===== ACTUAL INSTALLATION STARTS HERE =====
-
-    let current_exe = env::current_exe()?;
-
-    // Platform-specific installation paths
-    #[cfg(target_os = "linux")]
-    let (install_dir, target_exe) = {
-        let binary_dir = AppData::get_binary_dir()?;
-        let target = binary_dir.join(get_exe_name());
-        (binary_dir, target)
-    };
-
-    #[cfg(not(target_os = "linux"))]
-    let (install_dir, target_exe) = {
-        let data_dir = AppData::get_data_dir()?;
-        let target = data_dir.join(get_exe_name());
-        (data_dir, target)
-    };
-
-    // Ensure all necessary directories exist
-    if !install_dir.exists() {
-        fs::create_dir_all(&install_dir).context("Failed to create installation directory")?;
-    }
-
-    // Ensure config directory exists
-    let config_dir = AppData::get_config_dir()?;
-    if !config_dir.exists() {
-        fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
-    }
-
-    // Ensure data directory exists
-    let data_dir = AppData::get_data_dir()?;
-    if !data_dir.exists() {
-        fs::create_dir_all(&data_dir).context("Failed to create data directory")?;
-    }
-
-    // Copy to installation directory if not already there
-    let current_exe_canonical = current_exe.canonicalize().unwrap_or(current_exe.clone());
-    let target_exe_canonical = target_exe.canonicalize().ok();
-
-    let is_installed = target_exe_canonical.is_some_and(|t| t == current_exe_canonical);
-
-    let final_exe_path = if is_installed {
-        println!("ℹ️  Already running from installation directory.");
-        current_exe
-    } else {
-        println!("Installing Wallp to {}", target_exe.display());
-        match fs::copy(&current_exe, &target_exe) {
-            Ok(_) => {
-                println!("✅ Wallp copied to installation directory.");
-
-                // Give the filesystem a moment to settle
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                target_exe
-            }
-            Err(e) => {
-                println!("⚠️  Failed to copy executable: {e}. Proceeding with current executable.");
-                current_exe
-            }
+    if is_installed {
+        if !Confirm::new()
+            .with_prompt("Save changes?")
+            .default(true)
+            .interact()?
+        {
+            println!("No changes made.");
+            return Ok(());
         }
-    };
-
-    // Canonicalize the final path
-    let final_exe_path = final_exe_path.canonicalize().unwrap_or(final_exe_path);
-
-    // Save configuration
-    app_data.config.unsplash_access_key = access_key;
-    app_data.config.interval_minutes = interval;
-    app_data.config.collections = new_collections;
-    app_data.config.custom_collections = updated_custom_collections;
-    app_data.config.retention_days = retention_days;
-    app_data.save()?;
-
-    // Setup Autostart
-    if enable_autostart {
-        setup_autostart(true, &final_exe_path)?;
-        println!("✅ Autostart enabled.");
     } else {
-        setup_autostart(false, &final_exe_path)?;
-        println!("ℹ️ Autostart disabled.");
+        println!("Ready to install.");
+        if !Confirm::new()
+            .with_prompt("Proceed with installation?")
+            .default(true)
+            .interact()?
+        {
+            println!("Setup cancelled.");
+            return Ok(());
+        }
     }
 
-    // Add to PATH
-    if add_to_path {
+    // ===== ACTUAL CHANGES START HERE =====
+
+    // Skip binary installation if already installed
+    if is_installed {
+        // Just update settings without reinstallation
+        if enable_autostart != is_autostart_enabled()
+            && let Ok(current_exe) = env::current_exe()
+        {
+            setup_autostart(enable_autostart, &current_exe)?;
+        }
+
+        // Save configuration
+        app_data.config.unsplash_access_key = access_key;
+        app_data.config.interval_minutes = interval;
+        app_data.config.collections = new_collections;
+        app_data.config.custom_collections = updated_custom_collections;
+        app_data.config.retention_days = retention_days;
+        app_data.save()?;
+
+        println!();
+        println!("✅ Settings saved successfully!");
+    } else {
+        let current_exe = env::current_exe()?;
+
+        // Platform-specific installation paths
         #[cfg(target_os = "linux")]
-        {
-            add_local_bin_to_path()?;
+        let (install_dir, target_exe) = {
+            let binary_dir = AppData::get_binary_dir()?;
+            let target = binary_dir.join(get_exe_name());
+            (binary_dir, target)
+        };
+
+        #[cfg(not(target_os = "linux"))]
+        let (install_dir, target_exe) = {
+            let data_dir = AppData::get_data_dir()?;
+            let target = data_dir.join(get_exe_name());
+            (data_dir, target)
+        };
+
+        // Ensure all necessary directories exist
+        if !install_dir.exists() {
+            fs::create_dir_all(&install_dir).context("Failed to create installation directory")?;
         }
-        #[cfg(target_os = "windows")]
-        {
-            add_to_path_windows(&final_exe_path)?;
+
+        // Ensure config directory exists
+        let config_dir = AppData::get_config_dir()?;
+        if !config_dir.exists() {
+            fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
         }
-        #[cfg(target_os = "macos")]
-        {
-            add_to_path_unix(&final_exe_path)?;
+
+        // Ensure data directory exists
+        let data_dir = AppData::get_data_dir()?;
+        if !data_dir.exists() {
+            fs::create_dir_all(&data_dir).context("Failed to create data directory")?;
         }
+
+        // Copy to installation directory if not already there
+        let current_exe_canonical = current_exe.canonicalize().unwrap_or(current_exe.clone());
+        let target_exe_canonical = target_exe.canonicalize().ok();
+
+        let is_running_from_install = target_exe_canonical.is_some_and(|t| t == current_exe_canonical);
+
+        let final_exe_path = if is_running_from_install {
+            println!("ℹ️  Already running from installation directory.");
+            current_exe
+        } else {
+            println!("Installing Wallp to {}", target_exe.display());
+            match fs::copy(&current_exe, &target_exe) {
+                Ok(_) => {
+                    println!("✅ Wallp copied to installation directory.");
+
+                    // Give the filesystem a moment to settle
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    target_exe
+                }
+                Err(e) => {
+                    println!("⚠️  Failed to copy executable: {e}. Proceeding with current executable.");
+                    current_exe
+                }
+            }
+        };
+
+        // Canonicalize the final path
+        let final_exe_path = final_exe_path.canonicalize().unwrap_or(final_exe_path);
+
+        // Setup Autostart
+        if enable_autostart {
+            setup_autostart(true, &final_exe_path)?;
+            println!("✅ Autostart enabled.");
+        } else {
+            setup_autostart(false, &final_exe_path)?;
+            println!("ℹ️ Autostart disabled.");
+        }
+
+        // Add to PATH
+        if add_to_path {
+            #[cfg(target_os = "linux")]
+            {
+                add_local_bin_to_path()?;
+            }
+            #[cfg(target_os = "windows")]
+            {
+                add_to_path_windows(&final_exe_path)?;
+            }
+            #[cfg(target_os = "macos")]
+            {
+                add_to_path_unix(&final_exe_path)?;
+            }
+        }
+
+        println!();
+        println!("✅ Wallp installed successfully!");
+        println!("\nUsage:");
+        println!("  wallp new     - Get new wallpaper");
+        println!("  wallp next    - Next wallpaper");
+        println!("  wallp prev    - Previous wallpaper");
+        println!("  wallp --help  - See all commands");
+        if !is_running_from_install && final_exe_path != env::current_exe()? {
+            println!("\nYou can delete this installer file.");
+        }
+
+        println!();
+
+        start_background_process(&final_exe_path)?;
     }
-
-    println!();
-    println!("✅ Wallp installed successfully!");
-    println!("\nUsage:");
-    println!("  wallp new     - Get new wallpaper");
-    println!("  wallp next    - Next wallpaper");
-    println!("  wallp prev    - Previous wallpaper");
-    println!("  wallp --help  - See all commands");
-    if !is_installed && final_exe_path != env::current_exe()? {
-        println!("\nYou can delete this installer file.");
-    }
-
-    println!();
-
-    start_background_process(&final_exe_path)?;
 
     Ok(())
 }
@@ -853,7 +908,7 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
         Commands::Settings => {
             let data = AppData::load()?;
             let config = &data.config;
-            
+
             // Format API key (masked)
             let api_key = if config.unsplash_access_key.is_empty() {
                 "(not set)".to_string()
@@ -862,11 +917,11 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
             } else {
                 format!("****{}", &config.unsplash_access_key[config.unsplash_access_key.len() - 4..])
             };
-            
+
             // Build collections list with descriptions
             let default_collections = get_default_collections_info();
             let mut collection_lines = Vec::new();
-            
+
             for col_id in &config.collections {
                 let desc = default_collections.iter()
                     .find(|(id, _)| id == col_id)
@@ -877,33 +932,44 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
                             .map(|(_, d)| d.clone())
                     })
                     .unwrap_or_else(|| "Unknown".to_string());
-                
-                collection_lines.push(format!("  {desc} ({col_id})"));
+
+                collection_lines.push(format!("  - {desc} ({col_id})"));
             }
-            
+
             // Format interval
             let interval_str = format_interval_for_display(config.interval_minutes);
-            
+
             // Format retention
             let retention_str = match config.retention_days {
                 Some(0) => "Delete immediately".to_string(),
                 Some(n) => format!("{n} days"),
                 None => "Forever".to_string(),
             };
-            
-            println!("┌─────────────────────────────────────┐");
-            println!("│ Wallp Settings                      │");
-            println!("├─────────────────────────────────────┤");
-            println!("│ API Key:      {api_key:19} │");
-            println!("├─────────────────────────────────────┤");
-            println!("│ Collections:                        │");
+
+            // Autostart status
+            let autostart_str = if is_autostart_enabled() {
+                "Enabled"
+            } else {
+                "Disabled"
+            };
+
+            // PATH status
+            let path_str = if which::which("wallp").is_ok() {
+                "Yes"
+            } else {
+                "No"
+            };
+
+            println!("Wallp Settings\n");
+            println!("API Key: {api_key}");
+            println!("Collections:");
             for line in collection_lines {
-                println!("│   {line}  │");
+                println!("{line}");
             }
-            println!("├─────────────────────────────────────┤");
-            println!("│ Update:      {interval_str:19} │");
-            println!("│ Retention:   {retention_str:19} │");
-            println!("└─────────────────────────────────────┘");
+            println!("Update Interval: {interval_str}");
+            println!("Retention: {retention_str}");
+            println!("Autostart: {autostart_str}");
+            println!("Application in PATH: {path_str}");
         }
         Commands::Uninstall => handle_uninstall()?,
     }
