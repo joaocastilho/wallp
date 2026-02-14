@@ -199,8 +199,18 @@ fn main() -> ExitCode {
     #[allow(clippy::single_match_else)]
     match &cli.command {
         Some(cmd) => {
+            // Allow settings/info/status/list/config/folder commands without initialization
+            let needs_init = !matches!(
+                cmd,
+                Commands::Settings
+                    | Commands::Info
+                    | Commands::Status
+                    | Commands::List
+                    | Commands::Config
+                    | Commands::Folder
+            );
             // Auto-run setup on first install
-            if !cli::is_initialized() {
+            if needs_init && !cli::is_initialized() {
                 println!("{ASCII_ART}");
                 if let Err(e) = cli::setup_wizard() {
                     eprintln!("Error during setup: {e}");
