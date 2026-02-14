@@ -33,8 +33,8 @@ mod win_utils {
     }
 }
 
-#[allow(clippy::needless_raw_string_hashes)]
-const ASCII_ART: &str = r#"
+const ASCII_ART: &str = concat!(
+    r#"
                         ██\ ██\           
                         ██ |██ |          
 ██\  ██\  ██\  ██████\  ██ |██ | ██████\  
@@ -43,22 +43,28 @@ const ASCII_ART: &str = r#"
 ██ | ██ | ██ |██  __██ |██ |██ |██ |  ██ |
 \█████\████  |\███████ |██ |██ |██████  |
  \_____\____/  \_______|\__|\__|██  ____/ 
-                                ██ |      
-                                ██ |      
-                                \__|      
+                                 ██ |      
+                                 ██ |      
+                                 \__|      
 
   wallp v1.0.0
+  Built: "#,
+    env!("BUILD_DATETIME"),
+    r#"
   A cross-platform wallpaper manager that fetches random
   wallpapers from Unsplash and manages automatic cycling.
-"#;
+"#
+);
 
 #[derive(Parser)]
 #[command(name = "wallp")]
-#[command(version, about = ASCII_ART, long_about = None)]
+#[command(version = env!("CARGO_PKG_VERSION"), disable_version_flag = true, about = ASCII_ART, long_about = None)]
 #[command(disable_help_flag = true)]
 struct Cli {
-    #[arg(long, help = "Print help")]
+    #[arg(long, help = "print help")]
     help: bool,
+    #[arg(short = 'v', long, action = clap::ArgAction::Version)]
+    version: Option<bool>,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -145,7 +151,7 @@ fn print_grouped_help() {
     let cmd = Cli::command();
     let bin_name = cmd.get_name();
 
-    println!("\nusage: {bin_name} [COMMAND]");
+    println!("\nusage: {bin_name} [<command>] [<options>]");
     println!("\nCommands:");
 
     let commands = Commands::all_commands();
@@ -162,14 +168,11 @@ fn print_grouped_help() {
                 println!("  {name}{padding}{about}");
             }
         }
-        if group_idx < 2 {
-            println!();
-        }
     }
 
     println!("\nOptions:");
-    println!("  -h, --help     Print help");
-    println!("  -V, --version  Print version");
+    println!("  -h, --help     print help");
+    println!("  -v, --version  print version");
 }
 
 fn main() -> ExitCode {
