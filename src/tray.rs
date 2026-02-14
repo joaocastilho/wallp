@@ -7,13 +7,9 @@ use std::process::ExitCode;
 use tao::event_loop::{ControlFlow, EventLoop};
 use tray_icon::menu::MenuEvent;
 use tray_icon::{
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     TrayIconBuilder,
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
 };
-
-fn show_toast(title: &str, body: &str) {
-    let _ = Notification::new().summary(title).body(body).show();
-}
 
 #[allow(clippy::too_many_lines)]
 pub fn run() -> ExitCode {
@@ -108,17 +104,38 @@ pub fn run() -> ExitCode {
             } else if event.id == item_new.id() {
                 spawn_oneshot(manager::new);
             } else if event.id == item_info.id() {
-                if let Ok(Some(w)) = manager::get_current_wallpaper() {
-                    let title = w.title.unwrap_or_default();
-                    let author = w.author.unwrap_or_default();
-                    let msg = if !title.is_empty() && !author.is_empty() {
-                        format!("{title} by {author}")
-                    } else if !title.is_empty() {
-                        title
-                    } else {
-                        "No wallpaper".to_string()
-                    };
-                    show_toast("Wallp", &msg);
+                if let Ok(exe) = std::env::current_exe() {
+                    #[cfg(target_os = "windows")]
+                    {
+                        let _ = std::process::Command::new("cmd")
+                            .args([
+                                "/c",
+                                "start",
+                                "cmd",
+                                "/k",
+                                &exe.display().to_string(),
+                                "info",
+                            ])
+                            .spawn();
+                    }
+                    #[cfg(target_os = "linux")]
+                    {
+                        let _ = std::process::Command::new("x-terminal-emulator")
+                            .args(["-e", &exe.display().to_string(), "info"])
+                            .spawn();
+                    }
+                    #[cfg(target_os = "macos")]
+                    {
+                        let _ = std::process::Command::new("osascript")
+                            .args([
+                                "-e",
+                                &format!(
+                                    "tell app \"Terminal\" to do script \"{} info\"",
+                                    exe.display()
+                                ),
+                            ])
+                            .spawn();
+                    }
                 }
             } else if event.id == item_setup.id() {
                 if let Ok(exe) = std::env::current_exe() {

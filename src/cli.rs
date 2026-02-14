@@ -100,7 +100,8 @@ pub fn is_autostart_enabled() -> bool {
         .set_app_path(exe_path)
         .build();
 
-    auto.map(|a| a.is_enabled().unwrap_or(false)).unwrap_or(false)
+    auto.map(|a| a.is_enabled().unwrap_or(false))
+        .unwrap_or(false)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -382,7 +383,8 @@ pub fn setup_wizard() -> Result<()> {
         let current_exe_canonical = current_exe.canonicalize().unwrap_or(current_exe.clone());
         let target_exe_canonical = target_exe.canonicalize().ok();
 
-        let is_running_from_install = target_exe_canonical.is_some_and(|t| t == current_exe_canonical);
+        let is_running_from_install =
+            target_exe_canonical.is_some_and(|t| t == current_exe_canonical);
 
         let final_exe_path = if is_running_from_install {
             println!("ℹ️  Already running from installation directory.");
@@ -398,7 +400,9 @@ pub fn setup_wizard() -> Result<()> {
                     target_exe
                 }
                 Err(e) => {
-                    println!("⚠️  Failed to copy executable: {e}. Proceeding with current executable.");
+                    println!(
+                        "⚠️  Failed to copy executable: {e}. Proceeding with current executable."
+                    );
                     current_exe
                 }
             }
@@ -921,7 +925,10 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
             let api_key = if config.unsplash_access_key.is_empty() {
                 "Not set".to_string()
             } else {
-                format!("****{}", &config.unsplash_access_key[config.unsplash_access_key.len() - 4..])
+                format!(
+                    "****{}",
+                    &config.unsplash_access_key[config.unsplash_access_key.len() - 4..]
+                )
             };
 
             // Build collections list with descriptions
@@ -929,11 +936,14 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
             let mut collection_lines = Vec::new();
 
             for col_id in &config.collections {
-                let desc = default_collections.iter()
+                let desc = default_collections
+                    .iter()
                     .find(|(id, _)| id == col_id)
                     .map(|(_, d)| d.clone())
                     .or_else(|| {
-                        config.custom_collections.iter()
+                        config
+                            .custom_collections
+                            .iter()
                             .find(|(id, _)| id == col_id)
                             .map(|(_, d)| d.clone())
                     })
@@ -966,6 +976,7 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
                 "No"
             };
 
+            println!();
             println!("API Key: {api_key}");
             println!("Collections:");
             for line in collection_lines {

@@ -176,8 +176,7 @@ impl AppData {
         };
 
         #[allow(clippy::cast_possible_wrap)]
-        let cutoff_date =
-            chrono::Utc::now() - chrono::Duration::days(retention as i64);
+        let cutoff_date = chrono::Utc::now() - chrono::Duration::days(retention as i64);
         let data_dir = Self::get_data_dir()?;
         let wallpapers_dir = data_dir.join("wallpapers");
 

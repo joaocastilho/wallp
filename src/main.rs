@@ -111,7 +111,11 @@ impl Commands {
             | Commands::Prev
             | Commands::Info
             | Commands::Set { .. } => 0,
-            Commands::Status | Commands::List | Commands::Settings | Commands::Folder | Commands::Config => 1,
+            Commands::Status
+            | Commands::List
+            | Commands::Settings
+            | Commands::Folder
+            | Commands::Config => 1,
             Commands::Setup | Commands::Uninstall => 2,
         }
     }

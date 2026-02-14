@@ -99,9 +99,7 @@ fn set_wallpaper_from_history(wallpaper: &Wallpaper) -> Result<()> {
 
 async fn fetch_and_set_new(app_data: &mut AppData) -> Result<()> {
     if app_data.config.unsplash_access_key.is_empty() {
-        anyhow::bail!(
-            "Unsplash Access Key is missing. Run 'wallp setup' to configure."
-        );
+        anyhow::bail!("Unsplash Access Key is missing. Run 'wallp setup' to configure.");
     }
 
     let client = UnsplashClient::new(&app_data.config.unsplash_access_key);
