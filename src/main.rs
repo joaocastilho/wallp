@@ -33,9 +33,24 @@ mod win_utils {
     }
 }
 
+const ASCII_ART: &str = r#"
+                        ##\ ##\           
+                        ## |## |          
+##\  ##\  ##\  ######\  ## |## | ######\  
+## | ## | ## | \____##\ ## |## |##  __##\ 
+## | ## | ## | ####### |## |## |## /  ## |
+## | ## | ## |##  __## |## |## |## |  ## |
+\#####\####  |\####### |## |## |#######  |
+ \_____\____/  \_______|\__|\__|##  ____/ 
+                                ## |      
+                                ## |      
+                                \__|      
+"#;
+
 #[derive(Parser)]
-#[command(name = "Wallp")]
-#[command(version, about = "Wallp - Wallpaper Changer", long_about = None)]
+#[command(name = "wallp")]
+#[command(version, about = ASCII_ART, long_about = None)]
+#[command(help_template = "\nusage: {usage}\n\n{all-args}")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -43,27 +58,26 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Commands {
-    /// Initialize Wallp (Interactive Setup)
-    Setup,
-    /// Force fetch a new wallpaper
     New,
-    /// Go to next wallpaper (History or New)
+    /// go to next wallpaper (history or new)
     Next,
-    /// Go to previous wallpaper
+    /// go to previous wallpaper
     Prev,
-    /// Show status
+    /// show status
     Status,
-    /// Show current wallpaper info
+    /// show current wallpaper info
     Info,
-    /// Open wallpaper in browser
+    /// open wallpaper in browser
     Open,
-    /// Open local wallpapers folder
+    /// open local wallpapers folder
     Folder,
-    /// Edit configuration
+    /// edit configuration
     Config(ConfigArgs),
-    /// List recent wallpapers
+    /// list recent wallpapers
     List,
-    /// Uninstall Wallp (Remove startup, data, and cleanup)
+    /// run the setup wizard to configure wallp
+    Setup,
+    /// uninstall wallp (remove startup, data, and cleanup)
     Uninstall,
 }
 
@@ -80,6 +94,9 @@ enum ConfigAction {
 }
 
 fn main() -> ExitCode {
+    // Always print ASCII art first
+    println!("{}", ASCII_ART);
+
     #[cfg(target_os = "windows")]
     let in_terminal = win_utils::is_launched_from_terminal();
     #[cfg(not(target_os = "windows"))]
@@ -89,23 +106,25 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     match &cli.command {
-        Some(Commands::Setup) => {
-            if let Err(e) = cli::init_wizard() {
-                eprintln!("Error: {e}");
-                return ExitCode::FAILURE;
-            }
-        }
         Some(cmd) => {
+            // Auto-run setup on first install
+            if !cli::is_initialized() {
+                if let Err(e) = cli::setup_wizard() {
+                    eprintln!("Error during setup: {e}");
+                    return ExitCode::FAILURE;
+                }
+                return ExitCode::SUCCESS;
+            }
+
             if let Err(e) = cli::handle_command(cmd) {
                 eprintln!("Error: {e}");
                 return ExitCode::FAILURE;
             }
         }
         None => {
-            // Check if initialized - if not, run init wizard automatically
+            // Auto-run setup on first install
             if !cli::is_initialized() {
-                println!("First time running Wallp. Running setup...");
-                if let Err(e) = cli::init_wizard() {
+                if let Err(e) = cli::setup_wizard() {
                     eprintln!("Error during setup: {e}");
                     return ExitCode::FAILURE;
                 }

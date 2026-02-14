@@ -20,23 +20,57 @@ fn get_exe_name() -> &'static str {
 }
 
 pub fn is_initialized() -> bool {
-    if let (Ok(data_dir), Ok(config_path)) = (AppData::get_data_dir(), AppData::get_config_path()) {
-        return data_dir.exists() && config_path.exists();
+    // Check if config file exists (primary indicator)
+    if let Ok(config_path) = AppData::get_config_path() {
+        if config_path.exists() {
+            return true;
+        }
     }
     false
 }
 
 #[allow(clippy::too_many_lines)]
-pub fn init_wizard() -> Result<()> {
+pub fn setup_wizard() -> Result<()> {
     println!("Welcome to Wallp Setup Wizard!");
     println!("------------------------------");
 
     let current_exe = env::current_exe()?;
-    let data_dir = AppData::get_data_dir()?;
-    let config_path = AppData::get_config_path()?;
 
-    // Check if already initialized (data dir exists with config)
-    let is_initialized = data_dir.exists() && config_path.exists();
+    // Platform-specific installation paths
+    #[cfg(target_os = "linux")]
+    let (install_dir, target_exe) = {
+        let binary_dir = AppData::get_binary_dir()?;
+        let target = binary_dir.join(get_exe_name());
+        (binary_dir, target)
+    };
+
+    #[cfg(not(target_os = "linux"))]
+    let (install_dir, target_exe) = {
+        let data_dir = AppData::get_data_dir()?;
+        let target = data_dir.join(get_exe_name());
+        (data_dir, target)
+    };
+
+    // Ensure all necessary directories exist
+    if !install_dir.exists() {
+        fs::create_dir_all(&install_dir).context("Failed to create installation directory")?;
+    }
+
+    // Ensure config directory exists
+    let config_dir = AppData::get_config_dir()?;
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
+    }
+
+    // Ensure data directory exists
+    let data_dir = AppData::get_data_dir()?;
+    if !data_dir.exists() {
+        fs::create_dir_all(&data_dir).context("Failed to create data directory")?;
+    }
+
+    // Check if already initialized
+    let config_path = AppData::get_config_path()?;
+    let is_initialized = config_path.exists();
 
     // If already initialized, confirm before overwriting
     if is_initialized
@@ -49,14 +83,7 @@ pub fn init_wizard() -> Result<()> {
         return Ok(());
     }
 
-    // Ensure data directory exists
-    if !data_dir.exists() {
-        fs::create_dir_all(&data_dir).context("Failed to create data directory")?;
-    }
-
-    let target_exe = data_dir.join(get_exe_name());
-
-    // Copy to AppData if not already there
+    // Copy to installation directory if not already there
     let current_exe_canonical = current_exe.canonicalize().unwrap_or(current_exe.clone());
     let target_exe_canonical = target_exe.canonicalize().ok();
 
@@ -67,13 +94,16 @@ pub fn init_wizard() -> Result<()> {
         current_exe
     } else {
         println!("Installing Wallp to {}", target_exe.display());
-        // Copy current exe to target
-        // We might fail if target is running (shouldn't be, if we are in init)
-        // or permission issues.
         match fs::copy(&current_exe, &target_exe) {
             Ok(_) => {
-                println!("✅ Copied executable to AppData.");
-                // Give the filesystem a moment to settle/scan the new file so metadata is available for reading
+                #[cfg(target_os = "linux")]
+                println!("✅ Copied executable to ~/.local/bin/.");
+                #[cfg(target_os = "windows")]
+                println!("✅ Copied executable to Local AppData.");
+                #[cfg(target_os = "macos")]
+                println!("✅ Copied executable to Application Support.");
+
+                // Give the filesystem a moment to settle
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 target_exe
             }
@@ -84,8 +114,7 @@ pub fn init_wizard() -> Result<()> {
         }
     };
 
-    // Canonicalize the final path to ensure we have the absolute system path.
-    // This helps with registry keys and ensuring the file is correctly identified.
+    // Canonicalize the final path
     let final_exe_path = final_exe_path.canonicalize().unwrap_or(final_exe_path);
 
     let mut app_data = AppData::load()?; // Load existing or default
@@ -137,7 +166,17 @@ pub fn init_wizard() -> Result<()> {
         println!("ℹ️ Autostart disabled.");
     }
 
-    // Add to PATH
+    // Add to PATH (Linux only - binary is already in PATH location)
+    #[cfg(target_os = "linux")]
+    if Confirm::new()
+        .with_prompt("Add ~/.local/bin to PATH?")
+        .default(true)
+        .interact()?
+    {
+        add_local_bin_to_path()?;
+    }
+
+    // Add to PATH (Windows/macOS - add install directory)
     #[cfg(target_os = "windows")]
     if Confirm::new()
         .with_prompt("Add Wallp directory to system PATH?")
@@ -147,7 +186,7 @@ pub fn init_wizard() -> Result<()> {
         add_to_path_windows(&final_exe_path)?;
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     if Confirm::new()
         .with_prompt("Add Wallp directory to PATH?")
         .default(true)
@@ -179,8 +218,8 @@ pub fn init_wizard() -> Result<()> {
 
 #[cfg(target_os = "windows")]
 fn add_to_path_windows(exe_path: &Path) -> Result<()> {
-    use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
 
     let install_dir = exe_path
         .parent()
@@ -257,7 +296,11 @@ fn get_shell_name() -> &'static str {
         .iter()
         .any(|path| PathBuf::from(format!("{path}/{shell}")).exists());
 
-    if shell_exists { shell } else { "sh" }
+    if shell_exists {
+        shell
+    } else {
+        "sh"
+    }
 }
 
 #[cfg(test)]
@@ -377,6 +420,75 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn add_local_bin_to_path() -> Result<()> {
+    use std::io::Write;
+
+    let binary_dir = AppData::get_binary_dir()?;
+    let binary_dir_str = binary_dir.to_str().context("Invalid path")?;
+    let escaped_path = shell_escape(binary_dir_str);
+
+    let shell = get_shell_name();
+    let (rc_file, profile_file) = if shell == "zsh" {
+        (".zshrc".to_string(), ".zprofile".to_string())
+    } else {
+        (".bashrc".to_string(), ".bash_profile".to_string())
+    };
+
+    let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
+    let home_dir = base_dirs.home_dir();
+
+    let export_line = format!(r#"export PATH="$PATH:{escaped_path}"")"#);
+
+    for profile_name in &[&rc_file, &profile_file] {
+        let profile_path = home_dir.join(profile_name);
+
+        // Check permissions if file exists
+        if profile_path.exists() {
+            let metadata = fs::metadata(&profile_path)?;
+            if metadata.permissions().readonly() {
+                println!("⚠️  Profile {profile_name} is read-only, skipping");
+                continue;
+            }
+        }
+
+        let profile_content = if profile_path.exists() {
+            fs::read_to_string(&profile_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        // Use exact line matching to avoid false positives
+        if profile_content
+            .lines()
+            .any(|line| line.trim() == export_line)
+        {
+            println!("ℹ️ Directory already in PATH ({profile_name})");
+            continue;
+        }
+
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&profile_path)
+            .context(format!("Failed to open {profile_name}"))?;
+
+        writeln!(file, "\n# Wallp\nexport PATH=\"$PATH:{escaped_path}\"")
+            .context(format!("Failed to write to {profile_name}"))?;
+    }
+
+    println!("✅ Added {binary_dir_str} to PATH.");
+    println!("ℹ️ Restart your terminal or run 'source {rc_file}' to apply changes.");
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+#[allow(dead_code)]
+fn add_local_bin_to_path() -> Result<()> {
+    anyhow::bail!("add_local_bin_to_path is only applicable on Linux")
+}
+
 #[cfg(target_os = "macos")]
 fn build_auto_launch(app_path: &str) -> Result<auto_launch::AutoLaunch> {
     auto_launch::AutoLaunchBuilder::new()
@@ -434,7 +546,9 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
     let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
 
     match cmd {
-        Commands::Setup => unreachable!(), // Handled in main
+        Commands::Setup => {
+            setup_wizard()?;
+        }
         Commands::New => {
             rt.block_on(manager::new())?;
             println!("✨ New wallpaper set.");
@@ -555,19 +669,24 @@ fn handle_uninstall() -> Result<()> {
     }
 
     println!("Removing from startup...");
-    // We try to remove whatever registered path implies.
-    // AutoLaunch typically keys off app name, but we might have registered different paths?
-    // Let's assume current exe path or installed path.
-    // If we installed to AppData, we should point there.
-    if let Ok(data_dir) = AppData::get_data_dir() {
-        let exe_name = if cfg!(target_os = "windows") {
-            "wallp.exe"
-        } else {
-            "wallp"
-        };
-        let installed_exe = data_dir.join(exe_name);
-        if let Err(e) = setup_autostart(false, &installed_exe) {
-            println!("⚠️  Failed to remove installed autostart: {e}");
+    // Remove from autostart using the appropriate paths for each platform
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(binary_dir) = AppData::get_binary_dir() {
+            let installed_exe = binary_dir.join("wallp");
+            let _ = setup_autostart(false, &installed_exe);
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        if let Ok(data_dir) = AppData::get_data_dir() {
+            let exe_name = if cfg!(target_os = "windows") {
+                "wallp.exe"
+            } else {
+                "wallp"
+            };
+            let installed_exe = data_dir.join(exe_name);
+            let _ = setup_autostart(false, &installed_exe);
         }
     }
     // Also try current exe just in case
@@ -582,38 +701,96 @@ fn handle_uninstall() -> Result<()> {
             println!("⚠️  Failed to remove from PATH: {e}");
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    {
+        if let Err(e) = remove_local_bin_from_path() {
+            println!("⚠️  Failed to remove from PATH: {e}");
+        }
+    }
+    #[cfg(target_os = "macos")]
     {
         if let Err(e) = remove_from_path_unix() {
             println!("⚠️  Failed to remove from PATH: {e}");
         }
     }
 
-    println!("Removing data and configuration...");
-    let data_dir = AppData::get_data_dir()?;
+    // Platform-specific cleanup
     let current_exe = env::current_exe()?;
 
-    // Check if running from installation directory (AppData)
-    let data_dir_canonical = data_dir.canonicalize().unwrap_or_else(|_| data_dir.clone());
-    let current_exe_canonical = current_exe
-        .canonicalize()
-        .unwrap_or_else(|_| current_exe.clone());
-    let is_running_from_install = current_exe_canonical.starts_with(&data_dir_canonical);
-
-    // First, try to delete all files in data directory
-    if data_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&data_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let _ = if path.is_dir() {
-                    std::fs::remove_dir_all(&path)
-                } else {
-                    std::fs::remove_file(&path)
-                };
+    #[cfg(target_os = "linux")]
+    {
+        println!("Removing binary from ~/.local/bin...");
+        if let Ok(binary_dir) = AppData::get_binary_dir() {
+            let binary_path = binary_dir.join("wallp");
+            if binary_path.exists() {
+                match std::fs::remove_file(&binary_path) {
+                    Ok(_) => println!("✅ Removed binary: {}", binary_path.display()),
+                    Err(e) => println!("⚠️  Failed to remove binary: {e}"),
+                }
             }
         }
-        let _ = std::fs::remove_dir_all(&data_dir);
+
+        println!("Removing configuration from ~/.config/wallp...");
+        if let Ok(config_dir) = AppData::get_config_dir() {
+            if config_dir.exists() {
+                match std::fs::remove_dir_all(&config_dir) {
+                    Ok(_) => println!("✅ Removed config directory: {}", config_dir.display()),
+                    Err(e) => println!("⚠️  Failed to remove config directory: {e}"),
+                }
+            }
+        }
+
+        println!("Removing data from ~/.local/share/wallp...");
+        if let Ok(data_dir) = AppData::get_data_dir() {
+            if data_dir.exists() {
+                match std::fs::remove_dir_all(&data_dir) {
+                    Ok(_) => println!("✅ Removed data directory: {}", data_dir.display()),
+                    Err(e) => println!("⚠️  Failed to remove data directory: {e}"),
+                }
+            }
+        }
     }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        println!("Removing data and configuration...");
+        if let Ok(data_dir) = AppData::get_data_dir() {
+            if data_dir.exists() {
+                match std::fs::remove_dir_all(&data_dir) {
+                    Ok(_) => println!("✅ Removed data directory: {}", data_dir.display()),
+                    Err(e) => println!("⚠️  Failed to remove data directory: {e}"),
+                }
+            } else {
+                println!("ℹ️  Data directory does not exist, skipping.");
+            }
+        }
+    }
+
+    // Check if running from installation directory
+    let is_running_from_install = if let Ok(data_dir) = AppData::get_data_dir() {
+        let data_dir_canonical = data_dir.canonicalize().unwrap_or_else(|_| data_dir.clone());
+        let current_exe_canonical = current_exe
+            .canonicalize()
+            .unwrap_or_else(|_| current_exe.clone());
+        current_exe_canonical.starts_with(&data_dir_canonical)
+    } else {
+        false
+    };
+
+    #[cfg(target_os = "linux")]
+    let is_running_from_install = is_running_from_install || {
+        if let Ok(binary_dir) = AppData::get_binary_dir() {
+            let binary_dir_canonical = binary_dir
+                .canonicalize()
+                .unwrap_or_else(|_| binary_dir.clone());
+            let current_exe_canonical = current_exe
+                .canonicalize()
+                .unwrap_or_else(|_| current_exe.clone());
+            current_exe_canonical.starts_with(&binary_dir_canonical)
+        } else {
+            false
+        }
+    };
 
     if is_running_from_install {
         // Self-delete: spawn to delete exe after we exit
@@ -656,8 +833,8 @@ done"#
 
 #[cfg(target_os = "windows")]
 fn remove_from_path_windows() -> Result<()> {
-    use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
 
     // Remove BOTH current dir and installed dir if present, just to be sure
     let current_exe = env::current_exe()?;
@@ -760,6 +937,62 @@ fn remove_from_path_unix() -> Result<()> {
     println!("ℹ️ Restart your terminal or run 'source {rc_file}' to apply changes.");
 
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn remove_local_bin_from_path() -> Result<()> {
+    let binary_dir = AppData::get_binary_dir()?;
+    let binary_dir_str = binary_dir.to_str().context("Invalid path")?;
+    let escaped_path = shell_escape(binary_dir_str);
+
+    let shell = get_shell_name();
+    let (rc_file, profile_file) = if shell == "zsh" {
+        (".zshrc".to_string(), ".zprofile".to_string())
+    } else {
+        (".bashrc".to_string(), ".bash_profile".to_string())
+    };
+
+    let base_dirs = directories::BaseDirs::new().context("Failed to get home directory")?;
+    let home_dir = base_dirs.home_dir().to_path_buf();
+
+    let export_line = format!(r#"export PATH="$PATH:{escaped_path}""#);
+
+    for profile_name in &[&rc_file, &profile_file] {
+        let profile_path = home_dir.join(profile_name);
+        if !profile_path.exists() {
+            continue;
+        }
+
+        let profile_content =
+            fs::read_to_string(&profile_path).context("Failed to read shell profile")?;
+
+        // Use exact line matching to avoid false positives
+        if !profile_content
+            .lines()
+            .any(|line| line.trim() == export_line)
+        {
+            continue;
+        }
+
+        let new_content: String = profile_content
+            .lines()
+            .filter(|line| line.trim() != export_line && !line.contains("# Wallp"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        fs::write(&profile_path, new_content).context("Failed to write shell profile")?;
+    }
+
+    println!("✅ Removed from PATH.");
+    println!("ℹ️ Restart your terminal or run 'source {rc_file}' to apply changes.");
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+#[allow(dead_code)]
+fn remove_local_bin_from_path() -> Result<()> {
+    anyhow::bail!("remove_local_bin_from_path is only applicable on Linux")
 }
 
 #[cfg(not(target_family = "unix"))]

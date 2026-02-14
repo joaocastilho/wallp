@@ -11,7 +11,7 @@ fn test_cli_no_args_shows_help() {
     cmd.arg("--help")
         .assert()
         .success()
-        .stdout(predicates::str::contains("Usage: wallp"));
+        .stdout(predicates::str::contains("usage:"));
 }
 
 #[test]
@@ -20,5 +20,5 @@ fn test_cli_help_arg() {
     cmd.arg("--help")
         .assert()
         .success()
-        .stdout(predicates::str::contains("Usage: wallp"));
+        .stdout(predicates::str::contains("usage:"));
 }

@@ -122,14 +122,54 @@ impl Default for State {
 }
 
 impl AppData {
+    /// Get the data directory for wallpapers and other app data
+    /// - Linux: ~/.local/share/wallp/
+    /// - Windows: %LOCALAPPDATA%\wallp\
+    /// - macOS: ~/Library/Application Support/wallp/
     pub fn get_data_dir() -> anyhow::Result<PathBuf> {
         let base_dirs =
             directories::BaseDirs::new().context("Could not determine base directories")?;
-        Ok(base_dirs.config_dir().join("wallp"))
+        Ok(base_dirs.data_dir().join("wallp"))
     }
 
+    /// Get the config directory
+    /// - Linux: ~/.config/wallp/
+    /// - Windows: %LOCALAPPDATA%\wallp\
+    /// - macOS: ~/Library/Application Support/wallp/
+    pub fn get_config_dir() -> anyhow::Result<PathBuf> {
+        let base_dirs =
+            directories::BaseDirs::new().context("Could not determine base directories")?;
+        #[cfg(target_os = "linux")]
+        {
+            Ok(base_dirs.config_dir().join("wallp"))
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            Ok(base_dirs.data_dir().join("wallp"))
+        }
+    }
+
+    /// Get the config file path
     pub fn get_config_path() -> anyhow::Result<PathBuf> {
-        Ok(Self::get_data_dir()?.join("wallp.json"))
+        Ok(Self::get_config_dir()?.join("wallp.json"))
+    }
+
+    /// Get the binary directory (Linux only)
+    /// - Linux: ~/.local/bin/
+    /// - Windows/macOS: returns error (not applicable)
+    #[cfg(target_os = "linux")]
+    pub fn get_binary_dir() -> anyhow::Result<PathBuf> {
+        let base_dirs =
+            directories::BaseDirs::new().context("Could not determine base directories")?;
+        base_dirs
+            .executable_dir()
+            .map(|p| p.to_path_buf())
+            .context("Could not determine executable directory")
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub fn get_binary_dir() -> anyhow::Result<PathBuf> {
+        anyhow::bail!("Binary directory only applicable on Linux")
     }
 
     pub fn load() -> anyhow::Result<Self> {
