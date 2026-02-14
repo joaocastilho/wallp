@@ -1,8 +1,8 @@
 use crate::config::AppData;
 use crate::manager;
-use crate::{Commands, ConfigAction};
+use crate::Commands;
 use anyhow::{Context, Result};
-use dialoguer::{Confirm, Input};
+use dialoguer::{Confirm, Input, MultiSelect};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,6 +17,33 @@ fn get_exe_name() -> &'static str {
     {
         "wallp"
     }
+}
+
+const MIN_INTERVAL_MINUTES: u64 = 30;
+
+fn parse_interval(input: &str) -> Result<u64, String> {
+    let input = input.trim().to_lowercase();
+    if let Ok(minutes) = input.parse::<u64>() {
+        return Ok(minutes);
+    }
+    let last_char = input.chars().last().ok_or("Empty input")?;
+    let number_part = &input[..input.len() - 1];
+    let value: u64 = number_part.parse().map_err(|_| "Invalid number")?;
+    match last_char {
+        'd' => Ok(value * 24 * 60),
+        'h' => Ok(value * 60),
+        'm' => Ok(value),
+        's' => Ok((value as f64 / 60.0).ceil() as u64),
+        _ => Err("Use: d (days), h (hours), m (minutes), s (seconds)".to_string()),
+    }
+}
+
+fn get_default_collections_info() -> Vec<(String, String)> {
+    vec![
+        ("1065976".to_string(), "Wallpapers".to_string()),
+        ("3330448".to_string(), "Nature".to_string()),
+        ("894".to_string(), "Earth & Planets".to_string()),
+    ]
 }
 
 pub fn is_initialized() -> bool {
@@ -114,10 +141,16 @@ pub fn setup_wizard() -> Result<()> {
         }
     };
 
+    println!();
+
     // Canonicalize the final path
     let final_exe_path = final_exe_path.canonicalize().unwrap_or(final_exe_path);
 
     let mut app_data = AppData::load()?; // Load existing or default
+
+    println!();
+    println!("📋 Configuration");
+    println!("Get your API key at: https://unsplash.com/oauth/applications");
 
     let access_key: String = Input::new()
         .with_prompt("Unsplash Access Key")
@@ -125,25 +158,60 @@ pub fn setup_wizard() -> Result<()> {
         .interact()
         .context("Failed to get access key")?;
 
-    let interval: u64 = Input::new()
-        .with_prompt("Update Interval (minutes)")
-        .default(app_data.config.interval_minutes)
-        .interact()
-        .context("Failed to get interval")?;
+    // Parse interval with validation
+    let interval = loop {
+        let input: String = Input::new()
+            .with_prompt("Update Interval (e.g., 1d, 12h, 30m, 500s, or minutes)")
+            .default(app_data.config.interval_minutes.to_string())
+            .interact()
+            .context("Failed to get interval")?;
 
-    // Default collections
-    let collections_str = app_data.config.collections.join(",");
-    let collections_input: String = Input::new()
-        .with_prompt("Unsplash Collection IDs (comma separated)")
-        .default(collections_str)
-        .interact()
-        .context("Failed to get collections")?;
+        match parse_interval(&input) {
+            Ok(minutes) if minutes >= MIN_INTERVAL_MINUTES => break minutes,
+            Ok(_) => {
+                println!("Interval must be at least 30 minutes to avoid exceeding Unsplash's rate limit of 50 requests per day");
+            }
+            Err(e) => {
+                println!("Invalid input: {}", e);
+            }
+        }
+    };
 
-    let collections: Vec<String> = collections_input
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    println!();
+
+    // Collection selection with checkboxes
+    let default_collections = get_default_collections_info();
+    let current_collections = app_data.config.collections.clone();
+
+    // Prepare items for MultiSelect
+    let items: Vec<String> = default_collections
+        .iter()
+        .map(|(id, desc)| format!("{} - {}", desc, id))
         .collect();
+
+    // Determine which items are currently selected
+    let defaults: Vec<bool> = default_collections
+        .iter()
+        .map(|(id, _)| current_collections.contains(id))
+        .collect();
+
+    println!("Select collections (Space to toggle, Enter to confirm):");
+    println!("Find more at: https://unsplash.com/collections");
+    println!();
+
+    let selections = MultiSelect::new()
+        .items(&items)
+        .defaults(&defaults)
+        .interact()
+        .context("Failed to select collections")?;
+
+    let collections: Vec<String> = selections
+        .iter()
+        .map(|&idx| default_collections[idx].0.clone())
+        .collect();
+
+    println!();
+    println!("🔧 System Integration");
 
     let enable_autostart = Confirm::new()
         .with_prompt("Enable Autostart on Login?")
@@ -195,14 +263,18 @@ pub fn setup_wizard() -> Result<()> {
         add_to_path_unix(&final_exe_path)?;
     }
 
-    println!("✅ Configuration saved!");
+    println!();
+    println!("✅ Wallp installed successfully!");
+    println!("\nUsage:");
+    println!("  wallp new     - Get new wallpaper");
+    println!("  wallp next    - Next wallpaper");
+    println!("  wallp prev    - Previous wallpaper");
+    println!("  wallp --help  - See all commands");
     if !is_installed && final_exe_path != env::current_exe()? {
-        println!("ℹ️  You can safely delete this executable and the downloaded file.");
-        println!(
-            "ℹ️  Wallp is now installed at: {}",
-            final_exe_path.display()
-        );
+        println!("\nYou can delete this installer file.");
     }
+
+    println!();
 
     // Launch Tray App
     if Confirm::new()
@@ -600,28 +672,10 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
             let path = AppData::get_data_dir()?.join("wallpapers");
             open::that(path)?;
         }
-        Commands::Config(args) => match &args.action {
-            Some(ConfigAction::Edit) => {
-                let path = AppData::get_config_path()?;
-                open::that(path)?;
-            }
-            Some(ConfigAction::Set { key, value }) => {
-                let mut app_data = AppData::load()?;
-                match app_data.config.set(key, value) {
-                    Ok(()) => {
-                        app_data.save()?;
-                        println!("✅ Set {key} to {value}");
-                    }
-                    Err(e) => {
-                        anyhow::bail!("Failed to set config: {e}");
-                    }
-                }
-            }
-            None => {
-                let app_data = AppData::load()?;
-                app_data.config.show();
-            }
-        },
+        Commands::Config => {
+            let path = AppData::get_config_path()?;
+            open::that(path)?;
+        }
         Commands::List => {
             let data = AppData::load()?;
             for (i, w) in data.history.iter().rev().take(5).enumerate() {

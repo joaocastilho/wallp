@@ -58,39 +58,30 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Commands {
+    /// fetch a new random wallpaper
     New,
-    /// go to next wallpaper (history or new)
+    /// advance to next wallpaper
     Next,
-    /// go to previous wallpaper
+    /// go back to previous wallpaper
     Prev,
-    /// show status
-    Status,
-    /// show current wallpaper info
+    /// show current wallpaper details
     Info,
-    /// open wallpaper in browser
+    /// open wallpaper page in browser
     Open,
-    /// open local wallpapers folder
-    Folder,
-    /// edit configuration
-    Config(ConfigArgs),
-    /// list recent wallpapers
+
+    /// show scheduler status
+    Status,
+    /// list recent wallpaper history
     List,
-    /// run the setup wizard to configure wallp
+    /// open wallpapers folder in file manager
+    Folder,
+    /// open configuration file in default editor
+    Config,
+
+    /// run interactive setup wizard
     Setup,
-    /// uninstall wallp (remove startup, data, and cleanup)
+    /// remove wallp and all data
     Uninstall,
-}
-
-#[derive(clap::Args)]
-struct ConfigArgs {
-    #[command(subcommand)]
-    action: Option<ConfigAction>,
-}
-
-#[derive(clap::Subcommand)]
-enum ConfigAction {
-    Edit,
-    Set { key: String, value: String },
 }
 
 fn main() -> ExitCode {
