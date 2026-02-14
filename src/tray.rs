@@ -8,10 +8,46 @@ use std::process::ExitCode;
 use tao::event_loop::{ControlFlow, EventLoop};
 use tray_icon::menu::MenuEvent;
 use tray_icon::{
-    TrayIconBuilder,
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
+    TrayIconBuilder,
 };
 
+#[allow(clippy::collapsible_if)]
+#[cfg(windows)]
+fn show_toast(title: &str, body: &str) {
+    use windows::Data::Xml::Dom::XmlDocument;
+    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
+
+    #[allow(clippy::uninlined_format_args)]
+    let xml = format!(
+        r#"<toast>
+            <visual>
+                <binding template="ToastText02">
+                    <text id="1">{}</text>
+                    <text id="2">{}</text>
+                </binding>
+            </visual>
+        </toast>"#,
+        title, body
+    );
+
+    if let Ok(xml_doc) = XmlDocument::new() {
+        let _ = xml_doc.LoadXml(&windows::core::HSTRING::from(&xml));
+
+        if let Ok(toast) = ToastNotification::CreateToastNotification(&xml_doc)
+            && let Ok(notifier) = ToastNotificationManager::CreateToastNotifier()
+        {
+            let _ = notifier.Show(&toast);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn show_toast(title: &str, body: &str) {
+    let _ = Notification::new().summary(title).body(body).show();
+}
+
+#[allow(clippy::too_many_lines)]
 pub fn run() -> ExitCode {
     // Single instance check
     let instance = match single_instance::SingleInstance::new("wallp_tray_instance") {
@@ -44,6 +80,8 @@ pub fn run() -> ExitCode {
     let item_new = MenuItem::new("New Wallpaper", true, None);
     let item_next = MenuItem::new("Next", true, None);
     let item_prev = MenuItem::new("Previous", true, None);
+    let item_info = MenuItem::new("Info", true, None);
+    let item_setup = MenuItem::new("Setup", true, None);
     let item_folder = MenuItem::new("Open Folder", true, None);
     let item_config = MenuItem::new("Open Config", true, None);
     let item_quit = MenuItem::new("Quit", true, None);
@@ -52,9 +90,11 @@ pub fn run() -> ExitCode {
         &item_new,
         &item_next,
         &item_prev,
+        &item_info,
         &PredefinedMenuItem::separator(),
         &item_folder,
         &item_config,
+        &item_setup,
         &PredefinedMenuItem::separator(),
         &item_autostart,
         &PredefinedMenuItem::separator(),
@@ -99,6 +139,23 @@ pub fn run() -> ExitCode {
                 spawn_oneshot(manager::prev);
             } else if event.id == item_new.id() {
                 spawn_oneshot(manager::new);
+            } else if event.id == item_info.id() {
+                if let Ok(Some(w)) = manager::get_current_wallpaper() {
+                    let title = w.title.unwrap_or_default();
+                    let author = w.author.unwrap_or_default();
+                    let msg = if !title.is_empty() && !author.is_empty() {
+                        format!("{title} by {author}")
+                    } else if !title.is_empty() {
+                        title
+                    } else {
+                        "No wallpaper".to_string()
+                    };
+                    show_toast("Wallp", &msg);
+                }
+            } else if event.id == item_setup.id() {
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).arg("setup").spawn();
+                }
             } else if event.id == item_folder.id() {
                 if let Ok(data_dir) = AppData::get_data_dir() {
                     let _ = open::that(data_dir.join("wallpapers"));

@@ -9,17 +9,17 @@ fn test_config_serialization_roundtrip() {
     struct Config {
         unsplash_access_key: String,
         collections: Vec<String>,
+        custom_collections: Vec<(String, String)>,
         interval_minutes: u64,
-        aspect_ratio_tolerance: f64,
-        retention_days: u64,
+        retention_days: Option<u64>,
     }
 
     let config = Config {
         unsplash_access_key: "test_key".to_string(),
         collections: vec!["123".to_string(), "456".to_string()],
+        custom_collections: vec![("789".to_string(), "Custom".to_string())],
         interval_minutes: 60,
-        aspect_ratio_tolerance: 0.2,
-        retention_days: 14,
+        retention_days: Some(14),
     };
 
     let serialized = serde_json::to_string_pretty(&config).unwrap();
@@ -149,15 +149,24 @@ fn test_collection_id_parsing() {
 }
 
 #[test]
-fn test_retention_days_validation() {
-    // Test that retention_days must be valid
-    fn parse_retention(s: &str) -> Result<u64, std::num::ParseIntError> {
-        s.parse::<u64>()
+fn test_retention_days_parsing() {
+    // Test that retention_days parsing works correctly
+    // Empty string = None (keep forever)
+    // "0" = Some(0) (delete immediately)
+    // "7" = Some(7) (keep for 7 days)
+
+    fn parse_retention(input: &str) -> Option<u64> {
+        if input.trim().is_empty() {
+            None
+        } else {
+            input.trim().parse::<u64>().ok()
+        }
     }
 
-    assert!(parse_retention("7").is_ok());
-    assert!(parse_retention("0").is_ok()); // Disabled
-    assert!(parse_retention("365").is_ok());
-    assert!(parse_retention("-1").is_err()); // Negative
-    assert!(parse_retention("abc").is_err()); // Not a number
+    assert_eq!(parse_retention(""), None);
+    assert_eq!(parse_retention("7"), Some(7));
+    assert_eq!(parse_retention("0"), Some(0));
+    assert_eq!(parse_retention("365"), Some(365));
+    assert_eq!(parse_retention("-1"), None); // Negative not allowed
+    assert_eq!(parse_retention("abc"), None); // Invalid
 }

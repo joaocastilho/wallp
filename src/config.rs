@@ -15,9 +15,9 @@ pub struct AppData {
 pub struct Config {
     pub unsplash_access_key: String,
     pub collections: Vec<String>,
+    pub custom_collections: Vec<(String, String)>,
     pub interval_minutes: u64,
-    pub aspect_ratio_tolerance: f64,
-    pub retention_days: u64,
+    pub retention_days: Option<u64>,
 }
 
 impl Config {}
@@ -50,9 +50,9 @@ impl Default for Config {
                 "3330448".to_string(),
                 "894".to_string(),
             ],
+            custom_collections: Vec::new(),
             interval_minutes: 1440,
-            aspect_ratio_tolerance: 0.1,
-            retention_days: 7,
+            retention_days: Some(7),
         }
     }
 }
@@ -77,7 +77,14 @@ impl AppData {
     pub fn get_data_dir() -> anyhow::Result<PathBuf> {
         let base_dirs =
             directories::BaseDirs::new().context("Could not determine base directories")?;
-        Ok(base_dirs.data_dir().join("wallp"))
+        #[cfg(target_os = "windows")]
+        {
+            Ok(base_dirs.data_local_dir().join("wallp"))
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Ok(base_dirs.data_dir().join("wallp"))
+        }
     }
 
     /// Get the config directory
@@ -91,7 +98,11 @@ impl AppData {
         {
             Ok(base_dirs.config_dir().join("wallp"))
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "windows")]
+        {
+            Ok(base_dirs.data_local_dir().join("wallp"))
+        }
+        #[cfg(target_os = "macos")]
         {
             Ok(base_dirs.data_dir().join("wallp"))
         }
@@ -150,13 +161,23 @@ impl AppData {
 
     /// Clean up old wallpapers that exceed `retention_days`
     pub fn cleanup_old_wallpapers(&mut self) -> anyhow::Result<u32> {
-        if self.config.retention_days == 0 {
-            return Ok(0); // Retention disabled
-        }
+        // None = keep forever, Some(0) = delete immediately on next run
+        let retention = match self.config.retention_days {
+            Some(0) => {
+                // Delete all but the most recent wallpaper
+                if self.history.len() > 1 {
+                    self.history.drain(0..self.history.len() - 1);
+                    return self.cleanup_old_wallpapers();
+                }
+                return Ok(0);
+            }
+            None => return Ok(0), // Keep forever
+            Some(n) => n,
+        };
 
         #[allow(clippy::cast_possible_wrap)]
         let cutoff_date =
-            chrono::Utc::now() - chrono::Duration::days(self.config.retention_days as i64);
+            chrono::Utc::now() - chrono::Duration::days(retention as i64);
         let data_dir = Self::get_data_dir()?;
         let wallpapers_dir = data_dir.join("wallpapers");
 
@@ -209,8 +230,7 @@ mod tests {
         assert!(config.unsplash_access_key.is_empty());
         assert_eq!(config.collections.len(), 3);
         assert_eq!(config.interval_minutes, 1440);
-        assert!((config.aspect_ratio_tolerance - 0.1).abs() < f64::EPSILON);
-        assert_eq!(config.retention_days, 7);
+        assert_eq!(config.retention_days, Some(7));
     }
 
     #[test]

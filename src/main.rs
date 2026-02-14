@@ -33,18 +33,23 @@ mod win_utils {
     }
 }
 
+#[allow(clippy::needless_raw_string_hashes)]
 const ASCII_ART: &str = r#"
-                        ##\ ##\           
-                        ## |## |          
-##\  ##\  ##\  ######\  ## |## | ######\  
-## | ## | ## | \____##\ ## |## |##  __##\ 
-## | ## | ## | ####### |## |## |## /  ## |
-## | ## | ## |##  __## |## |## |## |  ## |
-\#####\####  |\####### |## |## |#######  |
- \_____\____/  \_______|\__|\__|##  ____/ 
-                                ## |      
-                                ## |      
+                        ██\ ██\           
+                        ██ |██ |          
+██\  ██\  ██\  ██████\  ██ |██ | ██████\  
+██ | ██ | ██ | \____██\ ██ |██ |██  __██\ 
+██ | ██ | ██ | ███████ |██ |██ |██ /  ██ |
+██ | ██ | ██ |██  __██ |██ |██ |██ |  ██ |
+\█████\████  |\███████ |██ |██ |██████  |
+ \_____\____/  \_______|\__|\__|██  ____/ 
+                                ██ |      
+                                ██ |      
                                 \__|      
+
+  wallp v1.0.0
+  A cross-platform wallpaper manager that fetches random
+  wallpapers from Unsplash and manages automatic cycling.
 "#;
 
 #[derive(Parser)]
@@ -69,13 +74,18 @@ enum Commands {
     Prev,
     /// show current wallpaper details
     Info,
-    /// open wallpaper page in browser
-    Open,
+    /// set wallpaper by number from history (shows list if no number provided)
+    Set {
+        /// wallpaper number to set (see 'wallp list')
+        index: Option<usize>,
+    },
 
     /// show scheduler status
     Status,
     /// list recent wallpaper history
     List,
+    /// show current configuration settings
+    Settings,
     /// open wallpapers folder in file manager
     Folder,
     /// open configuration file in default editor
@@ -90,8 +100,12 @@ enum Commands {
 impl Commands {
     fn group_index(&self) -> usize {
         match self {
-            Commands::New | Commands::Next | Commands::Prev | Commands::Info | Commands::Open => 0,
-            Commands::Status | Commands::List | Commands::Folder | Commands::Config => 1,
+            Commands::New
+            | Commands::Next
+            | Commands::Prev
+            | Commands::Info
+            | Commands::Set { .. } => 0,
+            Commands::Status | Commands::List | Commands::Settings | Commands::Folder | Commands::Config => 1,
             Commands::Setup | Commands::Uninstall => 2,
         }
     }
@@ -102,15 +116,18 @@ impl Commands {
         cmd.get_subcommands()
             .map(|sub| {
                 let name = sub.get_name().to_string();
-                let about = sub.get_about().map(|a| a.to_string()).unwrap_or_default();
+                let about = sub
+                    .get_about()
+                    .map(std::string::ToString::to_string)
+                    .unwrap_or_default();
                 let variant = match name.as_str() {
-                    "new" => Commands::New,
                     "next" => Commands::Next,
                     "prev" => Commands::Prev,
                     "info" => Commands::Info,
-                    "open" => Commands::Open,
+                    "set" => Commands::Set { index: None },
                     "status" => Commands::Status,
                     "list" => Commands::List,
+                    "settings" => Commands::Settings,
                     "folder" => Commands::Folder,
                     "config" => Commands::Config,
                     "setup" => Commands::Setup,
@@ -132,13 +149,17 @@ fn print_grouped_help() {
     println!("\nCommands:");
 
     let commands = Commands::all_commands();
-    let max_name_len = commands.iter().map(|(name, _, _)| name.len()).max().unwrap_or(10);
+    let max_name_len = commands
+        .iter()
+        .map(|(name, _, _)| name.len())
+        .max()
+        .unwrap_or(10);
 
     for group_idx in 0..3 {
         for (name, about, cmd_group) in &commands {
             if *cmd_group == group_idx {
                 let padding = " ".repeat(max_name_len.saturating_sub(name.len()) + 2);
-                println!("  {}{}{}", name, padding, about);
+                println!("  {name}{padding}{about}");
             }
         }
         if group_idx < 2 {
@@ -152,6 +173,7 @@ fn print_grouped_help() {
 }
 
 fn main() -> ExitCode {
+    #[allow(clippy::single_match_else)]
     #[cfg(target_os = "windows")]
     let in_terminal = win_utils::is_launched_from_terminal();
     #[cfg(not(target_os = "windows"))]
@@ -162,16 +184,17 @@ fn main() -> ExitCode {
 
     // Handle --help flag
     if cli.help {
-        println!("{}", ASCII_ART);
+        println!("{ASCII_ART}");
         print_grouped_help();
         return ExitCode::SUCCESS;
     }
 
+    #[allow(clippy::single_match_else)]
     match &cli.command {
         Some(cmd) => {
             // Auto-run setup on first install
             if !cli::is_initialized() {
-                println!("{}", ASCII_ART);
+                println!("{ASCII_ART}");
                 if let Err(e) = cli::setup_wizard() {
                     eprintln!("Error during setup: {e}");
                     return ExitCode::FAILURE;
@@ -187,7 +210,7 @@ fn main() -> ExitCode {
         None => {
             // Auto-run setup on first install
             if !cli::is_initialized() {
-                println!("{}", ASCII_ART);
+                println!("{ASCII_ART}");
                 if let Err(e) = cli::setup_wizard() {
                     eprintln!("Error during setup: {e}");
                     return ExitCode::FAILURE;
@@ -197,7 +220,7 @@ fn main() -> ExitCode {
 
             if in_terminal {
                 // Print ASCII art only when showing the menu (no command)
-                println!("{}", ASCII_ART);
+                println!("{ASCII_ART}");
                 print_grouped_help();
                 return ExitCode::SUCCESS;
             }

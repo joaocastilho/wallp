@@ -24,7 +24,7 @@ tracing-subscriber = "0.3.22"
 tray-icon = "0.21.3"
 wallpaper = "3.2.0"
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62.2", features = ["Win32_System_Console", "Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
+windows = { version = "0.62.2", features = ["Win32_System_Console", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "UI_Notifications", "Data_Xml_Dom"] }
 winreg = "0.55.0"
 
 [target.'cfg(not(windows))'.dependencies]

@@ -1,12 +1,21 @@
+use crate::Commands;
 use crate::config::AppData;
 use crate::manager;
-use crate::Commands;
 use anyhow::{Context, Result};
+use chrono::DateTime;
 use dialoguer::{Confirm, Input, MultiSelect};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+fn format_datetime(iso: &str) -> String {
+    if let Ok(dt) = DateTime::parse_from_rfc3339(iso) {
+        dt.format("%b %d, %Y at %l:%M %p").to_string()
+    } else {
+        iso.to_string()
+    }
+}
 
 fn get_exe_name() -> &'static str {
     #[cfg(target_os = "windows")]
@@ -33,8 +42,17 @@ fn parse_interval(input: &str) -> Result<u64, String> {
         'd' => Ok(value * 24 * 60),
         'h' => Ok(value * 60),
         'm' => Ok(value),
-        's' => Ok((value as f64 / 60.0).ceil() as u64),
-        _ => Err("Use: d (days), h (hours), m (minutes), s (seconds)".to_string()),
+        _ => Err("Use: d (days), h (hours), m (minutes)".to_string()),
+    }
+}
+
+fn format_interval_for_display(minutes: u64) -> String {
+    if minutes >= 1440 {
+        format!("{}d", minutes / 1440)
+    } else if minutes >= 60 {
+        format!("{}h", minutes / 60)
+    } else {
+        format!("{minutes}m")
     }
 }
 
@@ -141,8 +159,6 @@ pub fn setup_wizard() -> Result<()> {
         }
     };
 
-    println!();
-
     // Canonicalize the final path
     let final_exe_path = final_exe_path.canonicalize().unwrap_or(final_exe_path);
 
@@ -161,18 +177,22 @@ pub fn setup_wizard() -> Result<()> {
     // Parse interval with validation
     let interval = loop {
         let input: String = Input::new()
-            .with_prompt("Update Interval (e.g., 1d, 12h, 30m, 500s, or minutes)")
-            .default(app_data.config.interval_minutes.to_string())
+            .with_prompt("Update Interval (e.g., 1d, 12h, 30m)")
+            .default(format_interval_for_display(
+                app_data.config.interval_minutes,
+            ))
             .interact()
             .context("Failed to get interval")?;
 
         match parse_interval(&input) {
             Ok(minutes) if minutes >= MIN_INTERVAL_MINUTES => break minutes,
             Ok(_) => {
-                println!("Interval must be at least 30 minutes to avoid exceeding Unsplash's rate limit of 50 requests per day");
+                println!(
+                    "Interval must be at least 30 minutes to avoid exceeding Unsplash's rate limit of 50 requests per day"
+                );
             }
             Err(e) => {
-                println!("Invalid input: {}", e);
+                println!("Invalid input: {e}");
             }
         }
     };
@@ -182,17 +202,39 @@ pub fn setup_wizard() -> Result<()> {
     // Collection selection with checkboxes
     let default_collections = get_default_collections_info();
     let current_collections = app_data.config.collections.clone();
+    let custom_collections = app_data.config.custom_collections.clone();
 
-    // Prepare items for MultiSelect
-    let items: Vec<String> = default_collections
+    // Build items: defaults + custom + add option
+    let mut all_items: Vec<(String, String, bool)> = default_collections
         .iter()
-        .map(|(id, desc)| format!("{} - {}", desc, id))
+        .map(|(id, desc)| (id.clone(), format!("{desc} - {id}"), false))
         .collect();
 
-    // Determine which items are currently selected
-    let defaults: Vec<bool> = default_collections
+    for (id, desc) in &custom_collections {
+        all_items.push((id.clone(), format!("Custom: {desc} - {id}"), true));
+    }
+
+    let add_custom_index = all_items.len();
+    all_items.push((
+        String::new(),
+        "[+] Add custom collection(s)".to_string(),
+        false,
+    ));
+
+    // Build display items and defaults
+    let items: Vec<String> = all_items.iter().map(|(_, desc, _)| desc.clone()).collect();
+
+    let defaults: Vec<bool> = all_items
         .iter()
-        .map(|(id, _)| current_collections.contains(id))
+        .map(|(id, _, is_custom)| {
+            if id.is_empty() {
+                false
+            } else if *is_custom {
+                custom_collections.iter().any(|(cid, _)| cid == id)
+            } else {
+                current_collections.contains(id)
+            }
+        })
         .collect();
 
     println!("Select collections (Space to toggle, Enter to confirm):");
@@ -205,10 +247,72 @@ pub fn setup_wizard() -> Result<()> {
         .interact()
         .context("Failed to select collections")?;
 
-    let collections: Vec<String> = selections
-        .iter()
-        .map(|&idx| default_collections[idx].0.clone())
-        .collect();
+    // Handle "Add custom collection(s)" if selected
+    let mut new_collections: Vec<String> = Vec::new();
+    let mut updated_custom_collections: Vec<(String, String)> = custom_collections.clone();
+
+    for idx in &selections {
+        if *idx == add_custom_index {
+            let ids_input: String = Input::new()
+                .with_prompt("Enter collection IDs (comma-separated, e.g., 1234567,8901234)")
+                .interact()
+                .context("Failed to get collection IDs")?;
+
+            for id in ids_input
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                let desc: String = Input::new()
+                    .with_prompt(format!(
+                        "Description for {id} (optional, press Enter to skip):"
+                    ))
+                    .default(format!("Collection {id}"))
+                    .interact()
+                    .context("Failed to get description")?;
+
+                let final_desc = if desc.is_empty() || desc == format!("Collection {id}") {
+                    format!("Collection {id}")
+                } else {
+                    desc
+                };
+
+                updated_custom_collections.push((id.to_string(), final_desc));
+                new_collections.push(id.to_string());
+            }
+        } else {
+            new_collections.push(all_items[*idx].0.clone());
+        }
+    }
+
+    // Retention prompt
+    let retention_days: Option<u64> = loop {
+        let input: String = Input::new()
+            .with_prompt("Keep wallpapers for how many days? (leave empty for forever, 0 to delete immediately)")
+            .default("7".to_string())
+            .interact()
+            .context("Failed to get retention days")?;
+
+        if input.trim().is_empty() {
+            break None;
+        }
+
+        match input.trim().parse::<u64>() {
+            Ok(0) => break Some(0),
+            Ok(n) => break Some(n),
+            Err(_) => {
+                println!("Invalid input. Please enter a number, or leave empty for forever.");
+            }
+        }
+    };
+
+    // Update config
+    app_data.config.unsplash_access_key = access_key;
+    app_data.config.interval_minutes = interval;
+    app_data.config.collections = new_collections;
+    app_data.config.custom_collections = updated_custom_collections;
+    app_data.config.retention_days = retention_days;
+    app_data.save()?;
 
     println!();
     println!("🔧 System Integration");
@@ -218,12 +322,6 @@ pub fn setup_wizard() -> Result<()> {
         .default(true)
         .interact()
         .context("Failed to get autostart confirmation")?;
-
-    // Update config
-    app_data.config.unsplash_access_key = access_key;
-    app_data.config.interval_minutes = interval;
-    app_data.config.collections = collections;
-    app_data.save()?;
 
     // Setup Autostart
     if enable_autostart {
@@ -290,8 +388,8 @@ pub fn setup_wizard() -> Result<()> {
 
 #[cfg(target_os = "windows")]
 fn add_to_path_windows(exe_path: &Path) -> Result<()> {
-    use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
 
     let install_dir = exe_path
         .parent()
@@ -320,32 +418,7 @@ fn add_to_path_windows(exe_path: &Path) -> Result<()> {
     };
 
     env.set_value("Path", &new_path)?;
-    println!("✅ Added {install_dir_str} to PATH.");
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::ffi::CString;
-        let param =
-            CString::new("Environment").context("Failed to create CString for broadcast")?;
-        // SAFETY: SendMessageTimeoutA is a Windows API that broadcasts a message to all top-level windows.
-        // The LPARAM is a valid pointer to a null-terminated CString that lives for the duration of the call.
-        // This is the standard Windows mechanism for notifying applications of environment changes.
-        unsafe {
-            let result = windows::Win32::UI::WindowsAndMessaging::SendMessageTimeoutA(
-                windows::Win32::UI::WindowsAndMessaging::HWND_BROADCAST,
-                windows::Win32::UI::WindowsAndMessaging::WM_SETTINGCHANGE,
-                windows::Win32::Foundation::WPARAM(0),
-                windows::Win32::Foundation::LPARAM(param.as_ptr() as isize),
-                windows::Win32::UI::WindowsAndMessaging::SMTO_ABORTIFHUNG,
-                5000,
-                None,
-            );
-            if result.0 == 0 {
-                eprintln!("Warning: Could not notify system of PATH change");
-            }
-        }
-        println!("ℹ️ System notified of PATH change.");
-    }
+    println!("✅ Added to PATH (restart terminal to use)");
 
     Ok(())
 }
@@ -368,11 +441,7 @@ fn get_shell_name() -> &'static str {
         .iter()
         .any(|path| PathBuf::from(format!("{path}/{shell}")).exists());
 
-    if shell_exists {
-        shell
-    } else {
-        "sh"
-    }
+    if shell_exists { shell } else { "sh" }
 }
 
 #[cfg(test)]
@@ -486,8 +555,7 @@ fn add_to_path_unix(exe_path: &Path) -> Result<()> {
             .context(format!("Failed to write to {profile_name}"))?;
     }
 
-    println!("✅ Added {install_dir_str} to PATH.");
-    println!("ℹ️ Restart your terminal or run 'source {rc_file}' to apply changes.");
+    println!("✅ Added to PATH (restart terminal or run 'source {rc_file}')");
 
     Ok(())
 }
@@ -549,8 +617,7 @@ fn add_local_bin_to_path() -> Result<()> {
             .context(format!("Failed to write to {profile_name}"))?;
     }
 
-    println!("✅ Added {binary_dir_str} to PATH.");
-    println!("ℹ️ Restart your terminal or run 'source {rc_file}' to apply changes.");
+    println!("✅ Added to PATH (restart terminal or run 'source {rc_file}')");
 
     Ok(())
 }
@@ -614,6 +681,7 @@ fn start_background_process(exe_path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn handle_command(cmd: &Commands) -> Result<()> {
     let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
 
@@ -643,28 +711,112 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
                     "Stopped"
                 }
             );
-            println!("Next Run: {}", data.state.next_run_at);
-            println!("Last Run: {}", data.state.last_run_at);
-            println!(
-                "Current Wallpaper ID: {:?}",
-                data.state.current_wallpaper_id
-            );
+            println!("Next Run: {}", format_datetime(&data.state.next_run_at));
+            println!("Last Run: {}", format_datetime(&data.state.last_run_at));
+            if let Some(w) = manager::get_current_wallpaper()? {
+                let title = w.title.unwrap_or_default();
+                let author = w.author.unwrap_or_default();
+                if !title.is_empty() && !author.is_empty() {
+                    println!("Current: {title} by {author}");
+                }
+            }
         }
         Commands::Info => {
             if let Some(w) = manager::get_current_wallpaper()? {
                 println!("Title: {}", w.title.unwrap_or_default());
                 println!("Author: {}", w.author.unwrap_or_default());
-                println!("ID: {}", w.id);
+                if let Some(url) = w.url {
+                    println!();
+                    println!("View: {url}");
+                }
             } else {
                 println!("No wallpaper in history.");
             }
         }
-        Commands::Open => {
-            if let Some(w) = manager::get_current_wallpaper()? {
-                if let Some(url) = w.url {
-                    open::that(url)?;
-                } else {
-                    println!("No URL available.");
+        Commands::Set { index } => {
+            let data = AppData::load()?;
+            let history_len = data.history.len();
+
+            if history_len == 0 {
+                println!("No wallpaper in history.");
+                return Ok(());
+            }
+
+            if let Some(idx) = index {
+                rt.block_on(manager::set_by_index(*idx))?;
+                println!("✅ Wallpaper set to index {idx}");
+            } else {
+                println!("Select a wallpaper (most recent is 0):");
+                println!();
+
+                let mut shown = 0;
+                let mut total_shown = 0;
+                let max_initial = 5;
+                let max_more = 10;
+
+                loop {
+                    let to_show = if shown == 0 { max_initial } else { max_more };
+                    let items: Vec<String> = data
+                        .history
+                        .iter()
+                        .rev()
+                        .skip(shown)
+                        .take(to_show)
+                        .enumerate()
+                        .map(|(i, w)| {
+                            let idx = shown + i;
+                            format!(
+                                "{}: {} by {}",
+                                idx,
+                                w.title.clone().unwrap_or_default(),
+                                w.author.clone().unwrap_or_default()
+                            )
+                        })
+                        .collect();
+
+                    for item in &items {
+                        println!("{item}");
+                    }
+
+                    shown += items.len();
+                    total_shown += items.len();
+
+                    if shown >= history_len {
+                        break;
+                    }
+
+                    let prompt = if total_shown == max_initial {
+                        "Enter number (or 'm' for more):"
+                    } else {
+                        "Enter number (or 'm' for more, 'q' to quit):"
+                    };
+
+                    let input: String = Input::new()
+                        .with_prompt(prompt)
+                        .interact()
+                        .context("Failed to get input")?;
+
+                    if input.eq_ignore_ascii_case("q") {
+                        println!("Cancelled.");
+                        return Ok(());
+                    }
+
+                    if input.eq_ignore_ascii_case("m") {
+                        continue;
+                    }
+
+                    match input.trim().parse::<usize>() {
+                        Ok(idx) => {
+                            rt.block_on(manager::set_by_index(idx))?;
+                            println!("✅ Wallpaper set to index {idx}");
+                            break;
+                        }
+                        Err(_) => {
+                            println!(
+                                "Invalid input. Enter a number, 'm' for more, or 'q' to quit."
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -686,6 +838,61 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
                     w.author.clone().unwrap_or_default()
                 );
             }
+        }
+        Commands::Settings => {
+            let data = AppData::load()?;
+            let config = &data.config;
+            
+            // Format API key (masked)
+            let api_key = if config.unsplash_access_key.is_empty() {
+                "(not set)".to_string()
+            } else if config.unsplash_access_key.len() <= 4 {
+                "****".to_string()
+            } else {
+                format!("****{}", &config.unsplash_access_key[config.unsplash_access_key.len() - 4..])
+            };
+            
+            // Build collections list with descriptions
+            let default_collections = get_default_collections_info();
+            let mut collection_lines = Vec::new();
+            
+            for col_id in &config.collections {
+                let desc = default_collections.iter()
+                    .find(|(id, _)| id == col_id)
+                    .map(|(_, d)| d.clone())
+                    .or_else(|| {
+                        config.custom_collections.iter()
+                            .find(|(id, _)| id == col_id)
+                            .map(|(_, d)| d.clone())
+                    })
+                    .unwrap_or_else(|| "Unknown".to_string());
+                
+                collection_lines.push(format!("  {desc} ({col_id})"));
+            }
+            
+            // Format interval
+            let interval_str = format_interval_for_display(config.interval_minutes);
+            
+            // Format retention
+            let retention_str = match config.retention_days {
+                Some(0) => "Delete immediately".to_string(),
+                Some(n) => format!("{n} days"),
+                None => "Forever".to_string(),
+            };
+            
+            println!("┌─────────────────────────────────────┐");
+            println!("│ Wallp Settings                      │");
+            println!("├─────────────────────────────────────┤");
+            println!("│ API Key:      {api_key:19} │");
+            println!("├─────────────────────────────────────┤");
+            println!("│ Collections:                        │");
+            for line in collection_lines {
+                println!("│   {line}  │");
+            }
+            println!("├─────────────────────────────────────┤");
+            println!("│ Update:      {interval_str:19} │");
+            println!("│ Retention:   {retention_str:19} │");
+            println!("└─────────────────────────────────────┘");
         }
         Commands::Uninstall => handle_uninstall()?,
     }
@@ -786,7 +993,7 @@ fn handle_uninstall() -> Result<()> {
             let binary_path = binary_dir.join("wallp");
             if binary_path.exists() {
                 match std::fs::remove_file(&binary_path) {
-                    Ok(_) => println!("[  OK  ] Removed binary"),
+                    Ok(()) => println!("[  OK  ] Removed binary"),
                     Err(e) => println!("[FAILED] Failed to remove binary: {e}"),
                 }
             }
@@ -795,7 +1002,7 @@ fn handle_uninstall() -> Result<()> {
         if let Ok(config_dir) = AppData::get_config_dir() {
             if config_dir.exists() {
                 match std::fs::remove_dir_all(&config_dir) {
-                    Ok(_) => println!("[  OK  ] Removed configuration"),
+                    Ok(()) => println!("[  OK  ] Removed configuration"),
                     Err(e) => println!("[FAILED] Failed to remove configuration: {e}"),
                 }
             }
@@ -804,7 +1011,7 @@ fn handle_uninstall() -> Result<()> {
         if let Ok(data_dir) = AppData::get_data_dir() {
             if data_dir.exists() {
                 match std::fs::remove_dir_all(&data_dir) {
-                    Ok(_) => println!("[  OK  ] Removed data directory"),
+                    Ok(()) => println!("[  OK  ] Removed data directory"),
                     Err(e) => println!("[FAILED] Failed to remove data directory: {e}"),
                 }
             }
@@ -817,7 +1024,7 @@ fn handle_uninstall() -> Result<()> {
             && data_dir.exists()
         {
             match std::fs::remove_dir_all(&data_dir) {
-                Ok(_) => println!("[  OK  ] Removed data and configuration"),
+                Ok(()) => println!("[  OK  ] Removed data and configuration"),
                 Err(e) => println!("[FAILED] Failed to remove data directory: {e}"),
             }
         }
@@ -892,8 +1099,8 @@ done"#
 
 #[cfg(target_os = "windows")]
 fn remove_from_path_windows() -> Result<()> {
-    use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
 
     // Remove BOTH current dir and installed dir if present, just to be sure
     let current_exe = env::current_exe()?;

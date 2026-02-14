@@ -47,6 +47,35 @@ pub async fn new() -> Result<()> {
     fetch_and_set_new(&mut app_data).await
 }
 
+#[allow(clippy::unused_async)]
+pub async fn set_by_index(index: usize) -> Result<()> {
+    let mut app_data = AppData::load()?;
+    let history_len = app_data.history.len();
+
+    if history_len == 0 {
+        anyhow::bail!("No wallpaper in history");
+    }
+
+    // Convert display index to actual index (reverse: 0 = most recent)
+    let actual_index = history_len.saturating_sub(1).saturating_sub(index);
+
+    if actual_index >= history_len {
+        anyhow::bail!("Invalid index {} (max is {})", index, history_len - 1);
+    }
+
+    app_data.state.current_history_index = actual_index;
+    let wallpaper = &app_data.history[actual_index];
+    set_wallpaper_from_history(wallpaper)?;
+
+    #[allow(clippy::cast_possible_wrap)]
+    let next_run = Utc::now() + chrono::Duration::minutes(app_data.config.interval_minutes as i64);
+    app_data.state.next_run_at = next_run.to_rfc3339();
+
+    app_data.save()?;
+
+    Ok(())
+}
+
 // Ensure local file exists before setting
 fn set_wallpaper_from_history(wallpaper: &Wallpaper) -> Result<()> {
     let data_dir = AppData::get_data_dir()?;
