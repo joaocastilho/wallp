@@ -286,7 +286,7 @@ pub fn setup_wizard() -> Result<()> {
 
     let enable_autostart = Confirm::new()
         .with_prompt("Enable Autostart on Login?")
-        .default(is_autostart_enabled())
+        .default(true)
         .interact()
         .context("Failed to get autostart confirmation")?;
 
@@ -406,6 +406,14 @@ pub fn setup_wizard() -> Result<()> {
 
         // Canonicalize the final path
         let final_exe_path = final_exe_path.canonicalize().unwrap_or(final_exe_path);
+
+        // Save configuration
+        app_data.config.unsplash_access_key = access_key;
+        app_data.config.interval_minutes = interval;
+        app_data.config.collections = new_collections;
+        app_data.config.custom_collections = updated_custom_collections;
+        app_data.config.retention_days = retention_days;
+        app_data.save()?;
 
         // Setup Autostart
         if enable_autostart {
@@ -911,9 +919,7 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
 
             // Format API key (masked)
             let api_key = if config.unsplash_access_key.is_empty() {
-                "(not set)".to_string()
-            } else if config.unsplash_access_key.len() <= 4 {
-                "****".to_string()
+                "Not set".to_string()
             } else {
                 format!("****{}", &config.unsplash_access_key[config.unsplash_access_key.len() - 4..])
             };
@@ -960,7 +966,6 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
                 "No"
             };
 
-            println!("Wallp Settings\n");
             println!("API Key: {api_key}");
             println!("Collections:");
             for line in collection_lines {
@@ -1093,11 +1098,7 @@ fn handle_uninstall() -> Result<()> {
                     println!("[  OK  ] Removed configuration");
                 } else {
                     std::thread::sleep(std::time::Duration::from_secs(1));
-                    if std::fs::remove_dir_all(&config_dir).is_ok() {
-                        println!("[  OK  ] Removed configuration");
-                    } else {
-                        println!("[FAILED] Failed to remove configuration - please close Wallp and try again");
-                    }
+                    let _ = std::fs::remove_dir_all(&config_dir);
                 }
             }
         }
@@ -1108,11 +1109,7 @@ fn handle_uninstall() -> Result<()> {
                     println!("[  OK  ] Removed data directory");
                 } else {
                     std::thread::sleep(std::time::Duration::from_secs(1));
-                    if std::fs::remove_dir_all(&data_dir).is_ok() {
-                        println!("[  OK  ] Removed data directory");
-                    } else {
-                        println!("[FAILED] Failed to remove data directory - please close Wallp and try again");
-                    }
+                    let _ = std::fs::remove_dir_all(&data_dir);
                 }
             }
         }
@@ -1127,11 +1124,7 @@ fn handle_uninstall() -> Result<()> {
                 println!("[  OK  ] Removed data and configuration");
             } else {
                 std::thread::sleep(std::time::Duration::from_secs(1));
-                if std::fs::remove_dir_all(&data_dir).is_ok() {
-                    println!("[  OK  ] Removed data and configuration");
-                } else {
-                    println!("[FAILED] Failed to remove data directory - please close Wallp and try again");
-                }
+                let _ = std::fs::remove_dir_all(&data_dir);
             }
         }
     }
@@ -1163,38 +1156,83 @@ fn handle_uninstall() -> Result<()> {
     };
 
     if is_running_from_install {
-        // Self-delete: spawn to delete exe after we exit
+        // Self-delete: spawn to delete exe and directories after we exit
         println!("[INFO] Running from installation directory - scheduling self-deletion");
 
         let exe_path = current_exe.display().to_string();
 
         #[cfg(target_os = "windows")]
         {
+            let data_dir = AppData::get_data_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+
             let escaped_exe_path = powershell_escape(&exe_path);
+            let escaped_data_dir = powershell_escape(&data_dir);
+
             let ps_script = format!(
-                r#"Start-Sleep -Seconds 2; Set-Location $env:TEMP; Remove-Item -LiteralPath "{escaped_exe_path}" -Force -ErrorAction SilentlyContinue"#
+                r#"Start-Sleep -Seconds 2
+Set-Location $env:TEMP
+Remove-Item -LiteralPath "{escaped_exe_path}" -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath "{escaped_data_dir}" -Recurse -Force -ErrorAction SilentlyContinue"#
             );
             let _ = Command::new("powershell")
                 .args(["-WindowStyle", "Hidden", "-Command", &ps_script])
                 .spawn();
         }
 
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         {
-            let escaped_exe_path = shell_escape(&exe_path);
+            let exe_path = current_exe.display().to_string();
+            let data_dir = AppData::get_data_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            let config_dir = AppData::get_config_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            let binary_dir = AppData::get_binary_dir()
+                .map(|p| p.join("wallp").display().to_string())
+                .unwrap_or_default();
+
+            let escaped_exe = shell_escape(&exe_path);
+            let escaped_data = shell_escape(&data_dir);
+            let escaped_config = shell_escape(&config_dir);
+            let escaped_binary = shell_escape(&binary_dir);
+
             let script = format!(
                 r#"for i in 1 2 3 4 5; do
   sleep 1
-  if rm -f "{escaped_exe_path}" 2>/dev/null; then
-    break
-  fi
+  rm -f "{escaped_exe}" 2>/dev/null
+  rm -rf "{escaped_data}" 2>/dev/null
+  rm -rf "{escaped_config}" 2>/dev/null
+  rm -f "{escaped_binary}" 2>/dev/null
+done"#
+            );
+            let _ = Command::new("sh").args(["-c", &script]).spawn();
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let exe_path = current_exe.display().to_string();
+            let data_dir = AppData::get_data_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+
+            let escaped_exe = shell_escape(&exe_path);
+            let escaped_data = shell_escape(&data_dir);
+
+            let script = format!(
+                r#"for i in 1 2 3 4 5; do
+  sleep 1
+  rm -f "{escaped_exe}" 2>/dev/null
+  rm -rf "{escaped_data}" 2>/dev/null
 done"#
             );
             let _ = Command::new("sh").args(["-c", &script]).spawn();
         }
 
         println!();
-        println!("Uninstall complete. The executable will be removed shortly.");
+        println!("Uninstall complete. All installed files will be removed shortly.");
         std::process::exit(0);
     }
 
