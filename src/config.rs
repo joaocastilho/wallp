@@ -122,7 +122,7 @@ impl AppData {
             directories::BaseDirs::new().context("Could not determine base directories")?;
         base_dirs
             .executable_dir()
-            .map(|p| p.to_path_buf())
+            .map(std::path::Path::to_path_buf)
             .context("Could not determine executable directory")
     }
 

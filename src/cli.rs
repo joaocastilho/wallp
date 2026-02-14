@@ -1103,25 +1103,25 @@ fn handle_uninstall() -> Result<()> {
             }
         }
 
-        if let Ok(config_dir) = AppData::get_config_dir() {
-            if config_dir.exists() {
-                if std::fs::remove_dir_all(&config_dir).is_ok() {
-                    println!("[  OK  ] Removed configuration");
-                } else {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    let _ = std::fs::remove_dir_all(&config_dir);
-                }
+        if let Ok(config_dir) = AppData::get_config_dir()
+            && config_dir.exists()
+        {
+            if std::fs::remove_dir_all(&config_dir).is_ok() {
+                println!("[  OK  ] Removed configuration");
+            } else {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                let _ = std::fs::remove_dir_all(&config_dir);
             }
         }
 
-        if let Ok(data_dir) = AppData::get_data_dir() {
-            if data_dir.exists() {
-                if std::fs::remove_dir_all(&data_dir).is_ok() {
-                    println!("[  OK  ] Removed data directory");
-                } else {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    let _ = std::fs::remove_dir_all(&data_dir);
-                }
+        if let Ok(data_dir) = AppData::get_data_dir()
+            && data_dir.exists()
+        {
+            if std::fs::remove_dir_all(&data_dir).is_ok() {
+                println!("[  OK  ] Removed data directory");
+            } else {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                let _ = std::fs::remove_dir_all(&data_dir);
             }
         }
     }
@@ -1170,6 +1170,7 @@ fn handle_uninstall() -> Result<()> {
         // Self-delete: spawn to delete exe and directories after we exit
         println!("[INFO] Running from installation directory - scheduling self-deletion");
 
+        #[allow(unused_variables)]
         let exe_path = current_exe.display().to_string();
 
         #[cfg(target_os = "windows")]
