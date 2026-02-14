@@ -65,12 +65,16 @@ fn get_default_collections_info() -> Vec<(String, String)> {
 }
 
 pub fn is_initialized() -> bool {
-    // Check if config file exists (primary indicator)
+    if which::which("wallp").is_ok() {
+        return true;
+    }
+
     if let Ok(config_path) = AppData::get_config_path()
         && config_path.exists()
     {
-        return true;
+        let _ = fs::remove_file(&config_path);
     }
+
     false
 }
 
@@ -387,14 +391,7 @@ pub fn setup_wizard() -> Result<()> {
 
     println!();
 
-    // Launch Tray App
-    if Confirm::new()
-        .with_prompt("Start Wallp now?")
-        .default(true)
-        .interact()?
-    {
-        start_background_process(&final_exe_path)?;
-    }
+    start_background_process(&final_exe_path)?;
 
     Ok(())
 }
@@ -933,19 +930,30 @@ fn handle_uninstall() -> Result<()> {
 
     println!();
     println!("Uninstalling Wallp...");
-    println!("[  OK  ] Stopped background processes");
     // Kill other wallp instances (Tray app)
     #[cfg(target_os = "windows")]
     {
         let my_pid = std::process::id();
-        let _ = Command::new("taskkill")
+        let output = Command::new("taskkill")
             .args(["/F", "/IM", "wallp.exe", "/FI", &format!("PID ne {my_pid}")])
             .output();
+
+        if output.map(|o| o.status.success()).unwrap_or(false) {
+            println!("[  OK  ] Stopped background processes");
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        } else {
+            println!("[WARNING] Could not stop all Wallp processes - please close Wallp manually");
+        }
     }
     #[cfg(unix)]
     {
-        // Use exact match to avoid killing unrelated processes
-        let _ = Command::new("pkill").args(["-x", "wallp"]).output();
+        let output = Command::new("pkill").args(["-x", "wallp"]).output();
+        if output.map(|o| o.status.success()).unwrap_or(false) {
+            println!("[  OK  ] Stopped background processes");
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        } else {
+            println!("[WARNING] Could not stop all Wallp processes - please close Wallp manually");
+        }
     }
 
     // Remove from autostart using the appropriate paths for each platform
@@ -1015,18 +1023,30 @@ fn handle_uninstall() -> Result<()> {
 
         if let Ok(config_dir) = AppData::get_config_dir() {
             if config_dir.exists() {
-                match std::fs::remove_dir_all(&config_dir) {
-                    Ok(()) => println!("[  OK  ] Removed configuration"),
-                    Err(e) => println!("[FAILED] Failed to remove configuration: {e}"),
+                if std::fs::remove_dir_all(&config_dir).is_ok() {
+                    println!("[  OK  ] Removed configuration");
+                } else {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    if std::fs::remove_dir_all(&config_dir).is_ok() {
+                        println!("[  OK  ] Removed configuration");
+                    } else {
+                        println!("[FAILED] Failed to remove configuration - please close Wallp and try again");
+                    }
                 }
             }
         }
 
         if let Ok(data_dir) = AppData::get_data_dir() {
             if data_dir.exists() {
-                match std::fs::remove_dir_all(&data_dir) {
-                    Ok(()) => println!("[  OK  ] Removed data directory"),
-                    Err(e) => println!("[FAILED] Failed to remove data directory: {e}"),
+                if std::fs::remove_dir_all(&data_dir).is_ok() {
+                    println!("[  OK  ] Removed data directory");
+                } else {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    if std::fs::remove_dir_all(&data_dir).is_ok() {
+                        println!("[  OK  ] Removed data directory");
+                    } else {
+                        println!("[FAILED] Failed to remove data directory - please close Wallp and try again");
+                    }
                 }
             }
         }
@@ -1037,9 +1057,15 @@ fn handle_uninstall() -> Result<()> {
         if let Ok(data_dir) = AppData::get_data_dir()
             && data_dir.exists()
         {
-            match std::fs::remove_dir_all(&data_dir) {
-                Ok(()) => println!("[  OK  ] Removed data and configuration"),
-                Err(e) => println!("[FAILED] Failed to remove data directory: {e}"),
+            if std::fs::remove_dir_all(&data_dir).is_ok() {
+                println!("[  OK  ] Removed data and configuration");
+            } else {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                if std::fs::remove_dir_all(&data_dir).is_ok() {
+                    println!("[  OK  ] Removed data and configuration");
+                } else {
+                    println!("[FAILED] Failed to remove data directory - please close Wallp and try again");
+                }
             }
         }
     }
