@@ -50,13 +50,16 @@ const ASCII_ART: &str = r#"
 #[derive(Parser)]
 #[command(name = "wallp")]
 #[command(version, about = ASCII_ART, long_about = None)]
-#[command(help_template = "\nusage: {usage}\n\n{all-args}")]
+#[command(disable_help_flag = true)]
 struct Cli {
+    #[arg(long, help = "Print help")]
+    help: bool,
     #[command(subcommand)]
     command: Option<Commands>,
 }
 
 #[derive(clap::Subcommand)]
+#[allow(clippy::enum_variant_names)]
 enum Commands {
     /// fetch a new random wallpaper
     New,
@@ -84,10 +87,71 @@ enum Commands {
     Uninstall,
 }
 
-fn main() -> ExitCode {
-    // Always print ASCII art first
-    println!("{}", ASCII_ART);
+impl Commands {
+    fn group_index(&self) -> usize {
+        match self {
+            Commands::New | Commands::Next | Commands::Prev | Commands::Info | Commands::Open => 0,
+            Commands::Status | Commands::List | Commands::Folder | Commands::Config => 1,
+            Commands::Setup | Commands::Uninstall => 2,
+        }
+    }
 
+    fn all_commands() -> Vec<(String, String, usize)> {
+        use clap::CommandFactory;
+        let cmd = Cli::command();
+        cmd.get_subcommands()
+            .map(|sub| {
+                let name = sub.get_name().to_string();
+                let about = sub.get_about().map(|a| a.to_string()).unwrap_or_default();
+                let variant = match name.as_str() {
+                    "new" => Commands::New,
+                    "next" => Commands::Next,
+                    "prev" => Commands::Prev,
+                    "info" => Commands::Info,
+                    "open" => Commands::Open,
+                    "status" => Commands::Status,
+                    "list" => Commands::List,
+                    "folder" => Commands::Folder,
+                    "config" => Commands::Config,
+                    "setup" => Commands::Setup,
+                    "uninstall" => Commands::Uninstall,
+                    _ => Commands::New,
+                };
+                (name, about, variant.group_index())
+            })
+            .collect()
+    }
+}
+
+fn print_grouped_help() {
+    use clap::CommandFactory;
+    let cmd = Cli::command();
+    let bin_name = cmd.get_name();
+
+    println!("\nusage: {bin_name} [COMMAND]");
+    println!("\nCommands:");
+
+    let commands = Commands::all_commands();
+    let max_name_len = commands.iter().map(|(name, _, _)| name.len()).max().unwrap_or(10);
+
+    for group_idx in 0..3 {
+        for (name, about, cmd_group) in &commands {
+            if *cmd_group == group_idx {
+                let padding = " ".repeat(max_name_len.saturating_sub(name.len()) + 2);
+                println!("  {}{}{}", name, padding, about);
+            }
+        }
+        if group_idx < 2 {
+            println!();
+        }
+    }
+
+    println!("\nOptions:");
+    println!("  -h, --help     Print help");
+    println!("  -V, --version  Print version");
+}
+
+fn main() -> ExitCode {
     #[cfg(target_os = "windows")]
     let in_terminal = win_utils::is_launched_from_terminal();
     #[cfg(not(target_os = "windows"))]
@@ -96,10 +160,18 @@ fn main() -> ExitCode {
     // Parse CLI first
     let cli = Cli::parse();
 
+    // Handle --help flag
+    if cli.help {
+        println!("{}", ASCII_ART);
+        print_grouped_help();
+        return ExitCode::SUCCESS;
+    }
+
     match &cli.command {
         Some(cmd) => {
             // Auto-run setup on first install
             if !cli::is_initialized() {
+                println!("{}", ASCII_ART);
                 if let Err(e) = cli::setup_wizard() {
                     eprintln!("Error during setup: {e}");
                     return ExitCode::FAILURE;
@@ -115,6 +187,7 @@ fn main() -> ExitCode {
         None => {
             // Auto-run setup on first install
             if !cli::is_initialized() {
+                println!("{}", ASCII_ART);
                 if let Err(e) = cli::setup_wizard() {
                     eprintln!("Error during setup: {e}");
                     return ExitCode::FAILURE;
@@ -123,11 +196,9 @@ fn main() -> ExitCode {
             }
 
             if in_terminal {
-                use clap::CommandFactory;
-                if let Err(e) = Cli::command().print_help() {
-                    eprintln!("Error: {e}");
-                    return ExitCode::FAILURE;
-                }
+                // Print ASCII art only when showing the menu (no command)
+                println!("{}", ASCII_ART);
+                print_grouped_help();
                 return ExitCode::SUCCESS;
             }
 

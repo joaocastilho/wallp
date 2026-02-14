@@ -48,10 +48,10 @@ fn get_default_collections_info() -> Vec<(String, String)> {
 
 pub fn is_initialized() -> bool {
     // Check if config file exists (primary indicator)
-    if let Ok(config_path) = AppData::get_config_path() {
-        if config_path.exists() {
-            return true;
-        }
+    if let Ok(config_path) = AppData::get_config_path()
+        && config_path.exists()
+    {
+        return true;
     }
     false
 }
@@ -694,20 +694,25 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
 
 #[allow(clippy::too_many_lines)]
 fn handle_uninstall() -> Result<()> {
-    println!(
-        "⚠️  WARNING: This will remove Wallp from startup, delete all configuration/data, and remove it from PATH."
-    );
+    println!("[WARNING] This will permanently remove Wallp and all associated data:");
+    println!("          - Remove from system startup");
+    println!("          - Delete configuration and wallpaper history");
+    println!("          - Remove from PATH environment variable");
+    println!();
 
     if !Confirm::new()
         .with_prompt("Are you sure you want to uninstall Wallp?")
         .default(false)
         .interact()?
     {
+        println!();
         println!("Uninstall cancelled.");
         return Ok(());
     }
 
-    println!("Stopping background processes...");
+    println!();
+    println!("Uninstalling Wallp...");
+    println!("[  OK  ] Stopped background processes");
     // Kill other wallp instances (Tray app)
     #[cfg(target_os = "windows")]
     {
@@ -722,7 +727,6 @@ fn handle_uninstall() -> Result<()> {
         let _ = Command::new("pkill").args(["-x", "wallp"]).output();
     }
 
-    println!("Removing from startup...");
     // Remove from autostart using the appropriate paths for each platform
     #[cfg(target_os = "linux")]
     {
@@ -748,23 +752,28 @@ fn handle_uninstall() -> Result<()> {
         let _ = setup_autostart(false, &current_exe);
     }
 
-    println!("Removing from PATH...");
     #[cfg(target_os = "windows")]
     {
         if let Err(e) = remove_from_path_windows() {
-            println!("⚠️  Failed to remove from PATH: {e}");
+            println!("[FAILED] Failed to remove from PATH: {e}");
+        } else {
+            println!("[  OK  ] Removed from PATH");
         }
     }
     #[cfg(target_os = "linux")]
     {
         if let Err(e) = remove_local_bin_from_path() {
-            println!("⚠️  Failed to remove from PATH: {e}");
+            println!("[FAILED] Failed to remove from PATH: {e}");
+        } else {
+            println!("[  OK  ] Removed from PATH");
         }
     }
     #[cfg(target_os = "macos")]
     {
         if let Err(e) = remove_from_path_unix() {
-            println!("⚠️  Failed to remove from PATH: {e}");
+            println!("[FAILED] Failed to remove from PATH: {e}");
+        } else {
+            println!("[  OK  ] Removed from PATH");
         }
     }
 
@@ -773,33 +782,30 @@ fn handle_uninstall() -> Result<()> {
 
     #[cfg(target_os = "linux")]
     {
-        println!("Removing binary from ~/.local/bin...");
         if let Ok(binary_dir) = AppData::get_binary_dir() {
             let binary_path = binary_dir.join("wallp");
             if binary_path.exists() {
                 match std::fs::remove_file(&binary_path) {
-                    Ok(_) => println!("✅ Removed binary: {}", binary_path.display()),
-                    Err(e) => println!("⚠️  Failed to remove binary: {e}"),
+                    Ok(_) => println!("[  OK  ] Removed binary"),
+                    Err(e) => println!("[FAILED] Failed to remove binary: {e}"),
                 }
             }
         }
 
-        println!("Removing configuration from ~/.config/wallp...");
         if let Ok(config_dir) = AppData::get_config_dir() {
             if config_dir.exists() {
                 match std::fs::remove_dir_all(&config_dir) {
-                    Ok(_) => println!("✅ Removed config directory: {}", config_dir.display()),
-                    Err(e) => println!("⚠️  Failed to remove config directory: {e}"),
+                    Ok(_) => println!("[  OK  ] Removed configuration"),
+                    Err(e) => println!("[FAILED] Failed to remove configuration: {e}"),
                 }
             }
         }
 
-        println!("Removing data from ~/.local/share/wallp...");
         if let Ok(data_dir) = AppData::get_data_dir() {
             if data_dir.exists() {
                 match std::fs::remove_dir_all(&data_dir) {
-                    Ok(_) => println!("✅ Removed data directory: {}", data_dir.display()),
-                    Err(e) => println!("⚠️  Failed to remove data directory: {e}"),
+                    Ok(_) => println!("[  OK  ] Removed data directory"),
+                    Err(e) => println!("[FAILED] Failed to remove data directory: {e}"),
                 }
             }
         }
@@ -807,15 +813,12 @@ fn handle_uninstall() -> Result<()> {
 
     #[cfg(not(target_os = "linux"))]
     {
-        println!("Removing data and configuration...");
-        if let Ok(data_dir) = AppData::get_data_dir() {
-            if data_dir.exists() {
-                match std::fs::remove_dir_all(&data_dir) {
-                    Ok(_) => println!("✅ Removed data directory: {}", data_dir.display()),
-                    Err(e) => println!("⚠️  Failed to remove data directory: {e}"),
-                }
-            } else {
-                println!("ℹ️  Data directory does not exist, skipping.");
+        if let Ok(data_dir) = AppData::get_data_dir()
+            && data_dir.exists()
+        {
+            match std::fs::remove_dir_all(&data_dir) {
+                Ok(_) => println!("[  OK  ] Removed data and configuration"),
+                Err(e) => println!("[FAILED] Failed to remove data directory: {e}"),
             }
         }
     }
@@ -848,7 +851,7 @@ fn handle_uninstall() -> Result<()> {
 
     if is_running_from_install {
         // Self-delete: spawn to delete exe after we exit
-        println!("ℹ️  Running from installation directory. Scheduling self-deletion...");
+        println!("[INFO] Running from installation directory - scheduling self-deletion");
 
         let exe_path = current_exe.display().to_string();
 
@@ -877,11 +880,13 @@ done"#
             let _ = Command::new("sh").args(["-c", &script]).spawn();
         }
 
-        println!("✅ Uninstall complete. The executable will be removed shortly.");
+        println!();
+        println!("Uninstall complete. The executable will be removed shortly.");
         std::process::exit(0);
     }
 
-    println!("✅ Uninstall complete. You can now delete this executable.");
+    println!();
+    println!("Uninstall complete. You can now delete this executable.");
     Ok(())
 }
 
