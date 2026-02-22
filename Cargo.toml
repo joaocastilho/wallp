@@ -3,6 +3,9 @@ name = "wallp"
 version = "1.1.0"
 edition = "2024"
 
+[package.metadata.winres]
+# This section is empty but needed to quiet winres warnings
+
 [dependencies]
 anyhow = "1.0.100"
 auto-launch = "0.6.0"

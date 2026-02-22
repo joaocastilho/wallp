@@ -62,11 +62,11 @@ Or install from source with `cargo install --git https://github.com/joaocastilho
 git clone https://github.com/joaocastilho/wallp
 cd wallp
 
-# Build and install
-cargo install --path .
+# Build and release
+./release.sh
 ```
 
-The executable will be installed to your Cargo bin directory (`~/.cargo/bin/` or `%USERPROFILE%\.cargo\bin\`).
+The executable will be placed in the `release/` directory.
 
 ---
 
@@ -189,20 +189,16 @@ Configuration is stored in JSON format at your platform's standard data director
 ### Build Commands
 
 ```bash
-# Development build
-cargo build
+# Generate release for a specific platform
+./release.sh windows
+./release.sh linux
+./release.sh macos
 
-# Release build
-cargo build --release
+# Generate release for all platforms
+./release.sh all
 
-# Run tests
-cargo test
-
-# Run clippy
-cargo clippy --all-targets -- -D warnings
-
-# Format code
-cargo fmt
+# Build and install (development)
+cargo install --path .
 ```
 
 ---
