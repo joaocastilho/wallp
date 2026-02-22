@@ -65,7 +65,22 @@ fn get_default_collections_info() -> Vec<(String, String)> {
 }
 
 pub fn is_initialized() -> bool {
-    if which::which("wallp").is_ok() {
+    let is_installed = {
+        #[cfg(target_os = "linux")]
+        {
+            AppData::get_binary_dir()
+                .map(|dir| dir.join(get_exe_name()).exists())
+                .unwrap_or(false)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            AppData::get_data_dir()
+                .map(|dir| dir.join(get_exe_name()).exists())
+                .unwrap_or(false)
+        }
+    };
+
+    if is_installed || which::which(get_exe_name()).is_ok() || which::which("wallp").is_ok() {
         return true;
     }
 
