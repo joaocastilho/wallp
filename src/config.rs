@@ -182,59 +182,65 @@ impl AppData {
     }
 
     /// Clean up old wallpapers that exceed `retention_days`
+    pub fn cleanup_old_wallpapers(&mut self) -> anyhow::Result<u32> {
+        let data_dir = Self::get_data_dir()?;
+        self.cleanup_old_wallpapers_in(&data_dir)
+    }
+
+    /// Internal logic for cleaning up old wallpapers. Exposed for testing.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the data directory cannot be determined or if removing old wallpapers fails.
-    pub fn cleanup_old_wallpapers(&mut self) -> anyhow::Result<u32> {
-        // None = keep forever, Some(0) = delete immediately on next run
-        let retention = match self.config.retention_days {
-            Some(0) => {
-                // Delete all but the most recent wallpaper
-                if self.history.len() > 1 {
-                    self.history.drain(0..self.history.len() - 1);
-                    return self.cleanup_old_wallpapers();
-                }
-                return Ok(0);
-            }
-            None => return Ok(0), // Keep forever
-            Some(n) => n,
+    /// Returns an error if removing old wallpapers fails.
+    pub fn cleanup_old_wallpapers_in(&mut self, data_dir: &std::path::Path) -> anyhow::Result<u32> {
+        let Some(retention) = self.config.retention_days else {
+            return Ok(0); // Keep forever
         };
-
-        #[allow(clippy::cast_possible_wrap)]
-        let cutoff_date = chrono::Utc::now() - chrono::Duration::days(retention as i64);
-        let data_dir = Self::get_data_dir()?;
         let wallpapers_dir = data_dir.join("wallpapers");
-
         let mut removed_count = 0;
-        let mut retained_history: Vec<Wallpaper> = Vec::new();
 
-        for wallpaper in &self.history {
-            // Parse the applied_at timestamp
-            if let Ok(applied_at) = chrono::DateTime::parse_from_rfc3339(&wallpaper.applied_at)
-                && applied_at < cutoff_date
-            {
-                // This wallpaper is too old, delete the file
-                let file_path = wallpapers_dir.join(&wallpaper.filename);
-                if file_path.exists() {
-                    if let Err(e) = fs::remove_file(&file_path) {
-                        eprintln!(
-                            "Warning: Failed to delete old wallpaper file {}: {}",
-                            wallpaper.filename, e
-                        );
-                    } else {
-                        removed_count += 1;
+        if retention == 0 {
+            // Delete all but the most recent wallpaper
+            if self.history.len() > 1 {
+                let to_remove: Vec<_> = self.history.drain(0..self.history.len() - 1).collect();
+                for wallpaper in to_remove {
+                    let file_path = wallpapers_dir.join(&wallpaper.filename);
+                    if file_path.exists() {
+                        if let Err(e) = fs::remove_file(&file_path) {
+                            eprintln!(
+                                "Warning: Failed to delete old wallpaper file {}: {}",
+                                wallpaper.filename, e
+                            );
+                        } else {
+                            removed_count += 1;
+                        }
                     }
                 }
-                // Skip adding to retained history
-                continue;
             }
-            // Keep this wallpaper
-            retained_history.push(wallpaper.clone());
-        }
+        } else {
+            #[allow(clippy::cast_possible_wrap)]
+            let cutoff_date = chrono::Utc::now() - chrono::Duration::days(retention as i64);
 
-        // Update history with retained items
-        self.history = retained_history;
+            self.history.retain(|wallpaper| {
+                if let Ok(applied_at) = chrono::DateTime::parse_from_rfc3339(&wallpaper.applied_at)
+                {
+                    if applied_at < cutoff_date {
+                        let file_path = wallpapers_dir.join(&wallpaper.filename);
+                        if file_path.exists() {
+                            if let Err(e) = fs::remove_file(&file_path) {
+                                eprintln!(
+                                    "Warning: Failed to delete old wallpaper file {}: {}",
+                                    wallpaper.filename, e
+                                );
+                            } else {
+                                removed_count += 1;
+                            }
+                        }
+                        return false; // Remove from history
+                    }
+                }
+                true // Keep in history
+            });
+        }
 
         // Adjust current_history_index if it's now out of bounds
         if self.state.current_history_index >= self.history.len() {
@@ -312,5 +318,105 @@ mod tests {
             app_data.config.unsplash_access_key,
             deserialized.config.unsplash_access_key
         );
+    }
+
+    #[test]
+    fn test_cleanup_old_wallpapers_keep_forever() {
+        let temp_dir = tempfile::TempDir::new().expect("Must create temp dir");
+        let mut app_data = AppData::default();
+        app_data.config.retention_days = None;
+        app_data.history.push(Wallpaper {
+            id: "1".to_string(),
+            filename: "1.jpg".to_string(),
+            applied_at: "2010-01-01T00:00:00Z".to_string(), // very old
+            title: None,
+            author: None,
+            url: None,
+        });
+
+        let removed = app_data
+            .cleanup_old_wallpapers_in(temp_dir.path())
+            .expect("Must cleanup");
+        assert_eq!(removed, 0);
+        assert_eq!(app_data.history.len(), 1);
+    }
+
+    #[test]
+    fn test_cleanup_old_wallpapers_zero_retention() {
+        let temp_dir = tempfile::TempDir::new().expect("Must create temp dir");
+        let wallpapers_dir = temp_dir.path().join("wallpapers");
+        std::fs::create_dir_all(&wallpapers_dir).expect("Must create wallpapers dir");
+
+        let mut app_data = AppData::default();
+        app_data.config.retention_days = Some(0);
+
+        for i in 1..=3 {
+            let filename = format!("{i}.jpg");
+            std::fs::write(wallpapers_dir.join(&filename), "data").expect("Must test file");
+            app_data.history.push(Wallpaper {
+                id: i.to_string(),
+                filename,
+                applied_at: chrono::Utc::now().to_rfc3339(),
+                title: None,
+                author: None,
+                url: None,
+            });
+        }
+
+        let removed = app_data
+            .cleanup_old_wallpapers_in(temp_dir.path())
+            .expect("Must cleanup");
+        assert_eq!(removed, 2);
+        assert_eq!(app_data.history.len(), 1);
+        assert_eq!(app_data.history[0].id, "3");
+
+        assert!(!wallpapers_dir.join("1.jpg").exists());
+        assert!(!wallpapers_dir.join("2.jpg").exists());
+        assert!(wallpapers_dir.join("3.jpg").exists());
+    }
+
+    #[test]
+    fn test_cleanup_old_wallpapers_standard_retention() {
+        let temp_dir = tempfile::TempDir::new().expect("Must create temp dir");
+        let wallpapers_dir = temp_dir.path().join("wallpapers");
+        std::fs::create_dir_all(&wallpapers_dir).expect("Must create wallpapers dir");
+
+        let mut app_data = AppData::default();
+        app_data.config.retention_days = Some(3);
+
+        let now = chrono::Utc::now();
+        let old_time = now - chrono::Duration::days(5);
+        let recent_time = now - chrono::Duration::days(1);
+
+        std::fs::write(wallpapers_dir.join("old.jpg"), "data").expect("Must test file");
+        app_data.history.push(Wallpaper {
+            id: "old".to_string(),
+            filename: "old.jpg".to_string(),
+            applied_at: old_time.to_rfc3339(),
+            title: None,
+            author: None,
+            url: None,
+        });
+
+        std::fs::write(wallpapers_dir.join("recent.jpg"), "data").expect("Must test file");
+        app_data.history.push(Wallpaper {
+            id: "recent".to_string(),
+            filename: "recent.jpg".to_string(),
+            applied_at: recent_time.to_rfc3339(),
+            title: None,
+            author: None,
+            url: None,
+        });
+
+        let removed = app_data
+            .cleanup_old_wallpapers_in(temp_dir.path())
+            .expect("Must cleanup");
+
+        assert_eq!(removed, 1);
+        assert_eq!(app_data.history.len(), 1);
+        assert_eq!(app_data.history[0].id, "recent");
+
+        assert!(!wallpapers_dir.join("old.jpg").exists());
+        assert!(wallpapers_dir.join("recent.jpg").exists());
     }
 }

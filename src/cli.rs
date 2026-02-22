@@ -1716,4 +1716,83 @@ export EDITOR=vim"#;
         let escaped = shell_escape("/home/user/.config/wallp");
         assert!(escaped.contains("/home/user/.config/wallp"));
     }
+
+    #[test]
+    fn test_format_datetime_valid() {
+        let formatted = format_datetime("2023-10-25T14:30:00Z");
+        assert!(formatted.contains("Oct 25, 2023"));
+        assert!(formatted.contains("2:30 PM"));
+    }
+
+    #[test]
+    fn test_format_datetime_invalid() {
+        let formatted = format_datetime("not-a-date");
+        assert_eq!(formatted, "not-a-date");
+    }
+
+    #[test]
+    fn test_parse_interval_valid_minutes() {
+        assert_eq!(parse_interval("30m").unwrap(), 30);
+    }
+
+    #[test]
+    fn test_parse_interval_valid_hours() {
+        assert_eq!(parse_interval("2h").unwrap(), 120);
+    }
+
+    #[test]
+    fn test_parse_interval_valid_days() {
+        assert_eq!(parse_interval("1d").unwrap(), 1440);
+    }
+
+    #[test]
+    fn test_parse_interval_default() {
+        assert_eq!(parse_interval("45").unwrap(), 45);
+    }
+
+    #[test]
+    fn test_parse_interval_invalid() {
+        assert!(parse_interval("").is_err());
+        assert!(parse_interval("abc").is_err());
+        assert!(parse_interval("1x").is_err());
+    }
+
+    #[test]
+    fn test_format_interval_for_display() {
+        assert_eq!(format_interval_for_display(45), "45m");
+        assert_eq!(format_interval_for_display(60), "1h");
+        assert_eq!(format_interval_for_display(90), "1h");
+        assert_eq!(format_interval_for_display(1440), "1d");
+        assert_eq!(format_interval_for_display(2880), "2d");
+    }
+
+    #[test]
+    fn test_get_default_collections_info() {
+        let collections = get_default_collections_info();
+        assert_eq!(collections.len(), 3);
+        assert_eq!(collections[0].1, "Wallpapers");
+    }
+
+    #[test]
+    fn test_group_index() {
+        assert_eq!(Commands::New.group_index(), 0);
+        assert_eq!(Commands::Status.group_index(), 1);
+        assert_eq!(Commands::Setup.group_index(), 2);
+    }
+
+    #[test]
+    fn test_all_commands() {
+        let commands = Commands::all_commands();
+        assert!(!commands.is_empty());
+        assert!(commands.iter().any(|(name, _, _)| name == "new"));
+    }
+
+    #[test]
+    fn test_get_exe_name() {
+        let name = get_exe_name();
+        #[cfg(target_os = "windows")]
+        assert_eq!(name, "wallp.exe");
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(name, "wallp");
+    }
 }
