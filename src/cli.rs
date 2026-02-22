@@ -1,8 +1,8 @@
-use crate::Commands;
 use crate::config::AppData;
 use crate::manager;
 use anyhow::{Context, Result};
 use chrono::DateTime;
+pub use clap::{Parser, Subcommand};
 use dialoguer::{Confirm, Input, MultiSelect};
 use std::env;
 use std::fs;
@@ -10,14 +10,130 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn format_datetime(iso: &str) -> String {
-    if let Ok(dt) = DateTime::parse_from_rfc3339(iso) {
-        dt.format("%b %d, %Y at %l:%M %p").to_string()
-    } else {
-        iso.to_string()
+    DateTime::parse_from_rfc3339(iso).map_or_else(
+        |_| iso.to_string(),
+        |dt| dt.format("%b %d, %Y at %l:%M %p").to_string(),
+    )
+}
+
+#[derive(Parser)]
+#[command(name = "wallp")]
+#[command(version = env!("CARGO_PKG_VERSION"), disable_version_flag = true, about = "A cross-platform wallpaper manager.", long_about = None)]
+#[command(disable_help_flag = true)]
+pub struct Cli {
+    #[arg(long, help = "print help")]
+    pub help: bool,
+    #[arg(short = 'v', long, action = clap::ArgAction::Version)]
+    pub version: Option<bool>,
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+#[allow(clippy::enum_variant_names)]
+pub enum Commands {
+    /// fetch a new random wallpaper
+    New,
+    /// advance to next wallpaper
+    Next,
+    /// go back to previous wallpaper
+    Prev,
+    /// show current wallpaper details
+    Info,
+    /// set wallpaper by number from history (shows list if no number provided)
+    Set {
+        /// wallpaper number to set (see 'wallp list')
+        index: Option<usize>,
+    },
+
+    /// show scheduler status
+    Status,
+    /// list recent wallpaper history
+    List,
+    /// show current configuration settings
+    Settings,
+    /// open wallpapers folder in file manager
+    Folder,
+    /// open configuration file in default editor
+    Config,
+
+    /// run interactive setup wizard
+    Setup,
+    /// remove wallp and all data
+    Uninstall,
+}
+
+impl Commands {
+    #[must_use]
+    pub const fn group_index(&self) -> usize {
+        match self {
+            Self::New | Self::Next | Self::Prev | Self::Info | Self::Set { .. } => 0,
+            Self::Status | Self::List | Self::Settings | Self::Folder | Self::Config => 1,
+            Self::Setup | Self::Uninstall => 2,
+        }
+    }
+
+    #[must_use]
+    pub fn all_commands() -> Vec<(String, String, usize)> {
+        use clap::CommandFactory;
+        let cmd = Cli::command();
+        cmd.get_subcommands()
+            .map(|sub| {
+                let name = sub.get_name().to_string();
+                let about = sub
+                    .get_about()
+                    .map(std::string::ToString::to_string)
+                    .unwrap_or_default();
+                let variant = match name.as_str() {
+                    "next" => Self::Next,
+                    "prev" => Self::Prev,
+                    "info" => Self::Info,
+                    "set" => Self::Set { index: None },
+                    "status" => Self::Status,
+                    "list" => Self::List,
+                    "settings" => Self::Settings,
+                    "folder" => Self::Folder,
+                    "config" => Self::Config,
+                    "setup" => Self::Setup,
+                    "uninstall" => Self::Uninstall,
+                    _ => Self::New,
+                };
+                (name, about, variant.group_index())
+            })
+            .collect()
     }
 }
 
-fn get_exe_name() -> &'static str {
+pub fn print_grouped_help() {
+    use clap::CommandFactory;
+    let cmd = Cli::command();
+    let bin_name = cmd.get_name();
+
+    println!("\nusage: {bin_name} [<command>] [<options>]");
+    println!("\nCommands:");
+
+    let commands = Commands::all_commands();
+    let max_name_len = commands
+        .iter()
+        .map(|(name, _, _)| name.len())
+        .max()
+        .unwrap_or(10);
+
+    for group_idx in 0..3 {
+        for (name, about, cmd_group) in &commands {
+            if *cmd_group == group_idx {
+                let padding = " ".repeat(max_name_len.saturating_sub(name.len()) + 2);
+                println!("  {name}{padding}{about}");
+            }
+        }
+    }
+
+    println!("\nOptions:");
+    println!("  -h, --help     print help");
+    println!("  -v, --version  print version");
+}
+
+const fn get_exe_name() -> &'static str {
     #[cfg(target_os = "windows")]
     {
         "wallp.exe"
@@ -64,6 +180,7 @@ fn get_default_collections_info() -> Vec<(String, String)> {
     ]
 }
 
+#[must_use]
 pub fn is_initialized() -> bool {
     let is_installed = {
         #[cfg(target_os = "linux")]
@@ -93,6 +210,7 @@ pub fn is_initialized() -> bool {
     false
 }
 
+#[must_use]
 pub fn is_autostart_enabled() -> bool {
     let Ok(current_exe) = std::env::current_exe() else {
         return false;
@@ -119,6 +237,11 @@ pub fn is_autostart_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// Runs the interactive setup wizard.
+///
+/// # Errors
+///
+/// Returns an error if interacting with the user or saving configuration fails.
 #[allow(clippy::too_many_lines)]
 pub fn setup_wizard() -> Result<()> {
     let is_installed = is_initialized();
@@ -239,7 +362,7 @@ pub fn setup_wizard() -> Result<()> {
 
     // Handle "Add custom collection(s)" if selected
     let mut new_collections: Vec<String> = Vec::new();
-    let mut updated_custom_collections: Vec<(String, String)> = custom_collections.clone();
+    let mut updated_custom_collections: Vec<(String, String)> = custom_collections;
 
     for idx in &selections {
         if *idx == add_custom_index {
@@ -395,7 +518,9 @@ pub fn setup_wizard() -> Result<()> {
         }
 
         // Copy to installation directory if not already there
-        let current_exe_canonical = current_exe.canonicalize().unwrap_or(current_exe.clone());
+        let current_exe_canonical = current_exe
+            .canonicalize()
+            .unwrap_or_else(|_| current_exe.clone());
         let target_exe_canonical = target_exe.canonicalize().ok();
 
         let is_running_from_install =
@@ -537,6 +662,7 @@ fn get_shell_name() -> &'static str {
 }
 
 #[cfg(test)]
+#[must_use]
 pub fn get_shell_files(shell: &str) -> (String, String) {
     if shell == "zsh" {
         (".zshrc".to_string(), ".zprofile".to_string())
@@ -557,12 +683,14 @@ fn powershell_escape(s: &str) -> String {
 }
 
 #[cfg(test)]
+#[must_use]
 pub fn create_export_line(install_dir: &str) -> String {
     let escaped = shell_escape(install_dir);
     format!(r#"export PATH="$PATH:{escaped}""#)
 }
 
 #[cfg(test)]
+#[must_use]
 pub fn add_path_to_profile_content(content: &str, install_dir: &str) -> String {
     let export_line = create_export_line(install_dir);
     // Use exact line matching to avoid false positives
@@ -573,6 +701,7 @@ pub fn add_path_to_profile_content(content: &str, install_dir: &str) -> String {
 }
 
 #[cfg(test)]
+#[must_use]
 pub fn remove_path_from_profile_content(content: &str, install_dir: &str) -> String {
     let export_line = create_export_line(install_dir);
     content
@@ -583,6 +712,7 @@ pub fn remove_path_from_profile_content(content: &str, install_dir: &str) -> Str
 }
 
 #[cfg(test)]
+#[must_use]
 pub fn is_path_in_profile(content: &str, install_dir: &str) -> bool {
     let export_line = create_export_line(install_dir);
     content.lines().any(|line| line.trim() == export_line)
@@ -740,6 +870,11 @@ fn build_auto_launch(app_path: &str) -> Result<auto_launch::AutoLaunch> {
         .map_err(|e| anyhow::anyhow!("Failed to build auto_launch: {e}"))
 }
 
+/// Setup autostart for the application.
+///
+/// # Errors
+///
+/// Returns an error if the auto-launch builder fails or if enabling/disabling fails.
 pub fn setup_autostart(enable: bool, exe_path: &Path) -> Result<()> {
     let app_path = exe_path
         .to_str()
@@ -774,6 +909,11 @@ fn start_background_process(exe_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Handle the parsed CLI command.
+///
+/// # Errors
+///
+/// Returns an error if the command fails to execute or if the tokio runtime fails to create.
 #[allow(clippy::too_many_lines)]
 pub fn handle_command(cmd: &Commands) -> Result<()> {
     let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
@@ -1156,19 +1296,17 @@ fn handle_uninstall() -> Result<()> {
     }
 
     // Check if running from installation directory
-    let is_running_from_install = if let Ok(data_dir) = AppData::get_data_dir() {
+    let is_running_from_install = AppData::get_data_dir().is_ok_and(|data_dir| {
         let data_dir_canonical = data_dir.canonicalize().unwrap_or_else(|_| data_dir.clone());
         let current_exe_canonical = current_exe
             .canonicalize()
             .unwrap_or_else(|_| current_exe.clone());
         current_exe_canonical.starts_with(&data_dir_canonical)
-    } else {
-        false
-    };
+    });
 
     #[cfg(target_os = "linux")]
     let is_running_from_install = is_running_from_install || {
-        if let Ok(binary_dir) = AppData::get_binary_dir() {
+        AppData::get_binary_dir().is_ok_and(|binary_dir| {
             let binary_dir_canonical = binary_dir
                 .canonicalize()
                 .unwrap_or_else(|_| binary_dir.clone());
@@ -1176,9 +1314,7 @@ fn handle_uninstall() -> Result<()> {
                 .canonicalize()
                 .unwrap_or_else(|_| current_exe.clone());
             current_exe_canonical.starts_with(&binary_dir_canonical)
-        } else {
-            false
-        }
+        })
     };
 
     if is_running_from_install {

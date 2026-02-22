@@ -29,7 +29,7 @@ fn set_build_timestamp() {
     use std::time::SystemTime;
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs();
 
     // Format as human-readable date/time (UTC)
@@ -76,7 +76,7 @@ fn format_timestamp(timestamp: u64) -> String {
     )
 }
 
-fn is_leap_year(year: u64) -> bool {
+const fn is_leap_year(year: u64) -> bool {
     (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 

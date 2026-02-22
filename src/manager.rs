@@ -3,6 +3,10 @@ use crate::unsplash::UnsplashClient;
 use anyhow::Result;
 use chrono::Utc;
 
+///
+/// # Errors
+///
+/// Returns an error if loading/saving settings or fetching/setting a wallpaper fails.
 pub async fn next() -> Result<()> {
     let mut app_data = AppData::load()?;
 
@@ -27,6 +31,10 @@ pub async fn next() -> Result<()> {
     fetch_and_set_new(&mut app_data).await
 }
 
+///
+/// # Errors
+///
+/// Returns an error if loading/saving settings fails, if no previous wallpaper is available, or if setting a wallpaper fails.
 pub async fn prev() -> Result<()> {
     let mut app_data = AppData::load()?;
 
@@ -42,11 +50,19 @@ pub async fn prev() -> Result<()> {
     Ok(())
 }
 
+///
+/// # Errors
+///
+/// Returns an error if loading/saving settings or fetching/setting a wallpaper fails.
 pub async fn new() -> Result<()> {
     let mut app_data = AppData::load()?;
     fetch_and_set_new(&mut app_data).await
 }
 
+///
+/// # Errors
+///
+/// Returns an error if loading/saving settings fails, if the index is out of bounds, or if setting a wallpaper fails.
 #[allow(clippy::unused_async)]
 pub async fn set_by_index(index: usize) -> Result<()> {
     let mut app_data = AppData::load()?;
@@ -112,14 +128,16 @@ async fn fetch_and_set_new(app_data: &mut AppData) -> Result<()> {
 
     client.download_image(&photo.urls.full, &file_path).await?;
 
-    match file_path.to_str() {
-        Some(p) => {
+    file_path.to_str().map_or_else(
+        || {
+            Err(anyhow::anyhow!(
+                "Wallpaper file path contains invalid UTF-8"
+            ))
+        },
+        |p| {
             wallpaper::set_from_path(p).map_err(|e| anyhow::anyhow!("Failed to set wallpaper: {e}"))
-        }
-        None => Err(anyhow::anyhow!(
-            "Wallpaper file path contains invalid UTF-8"
-        )),
-    }?;
+        },
+    )?;
 
     let new_wallpaper = Wallpaper {
         id: photo.id.clone(),
@@ -152,6 +170,10 @@ async fn fetch_and_set_new(app_data: &mut AppData) -> Result<()> {
     Ok(())
 }
 
+///
+/// # Errors
+///
+/// Returns an error if loading the application data fails.
 pub fn get_current_wallpaper() -> Result<Option<Wallpaper>> {
     let app_data = AppData::load()?;
     if app_data.history.is_empty() {
@@ -170,10 +192,10 @@ mod tests {
     use tempfile::TempDir;
 
     fn create_test_env() -> (TempDir, AppData) {
-        let temp_dir = TempDir::new().unwrap();
+        let temp_dir = TempDir::new().expect("Must create test dir");
         let data_dir = temp_dir.path().join("wallp");
-        fs::create_dir_all(&data_dir).unwrap();
-        fs::create_dir_all(data_dir.join("wallpapers")).unwrap();
+        fs::create_dir_all(&data_dir).expect("Must create nested dir");
+        fs::create_dir_all(data_dir.join("wallpapers")).expect("Must create wallpaper dir");
 
         let app_data = AppData::default();
         (temp_dir, app_data)
@@ -223,7 +245,7 @@ mod tests {
         };
 
         assert!(result.is_some());
-        assert_eq!(result.unwrap().id, "test_id");
+        assert_eq!(result.expect("Should not be None").id, "test_id");
     }
 
     #[test]

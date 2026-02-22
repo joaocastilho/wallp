@@ -73,7 +73,10 @@ impl AppData {
     /// Get the data directory for wallpapers and other app data
     /// - Linux: ~/.local/share/wallp/
     /// - Windows: %LOCALAPPDATA%\wallp\
-    /// - macOS: ~/Library/Application Support/wallp/
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `BaseDirs` cannot be determined.
     pub fn get_data_dir() -> anyhow::Result<PathBuf> {
         let base_dirs =
             directories::BaseDirs::new().context("Could not determine base directories")?;
@@ -90,7 +93,10 @@ impl AppData {
     /// Get the config directory
     /// - Linux: ~/.config/wallp/
     /// - Windows: %LOCALAPPDATA%\wallp\
-    /// - macOS: ~/Library/Application Support/wallp/
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `BaseDirs` cannot be determined.
     pub fn get_config_dir() -> anyhow::Result<PathBuf> {
         let base_dirs =
             directories::BaseDirs::new().context("Could not determine base directories")?;
@@ -109,6 +115,10 @@ impl AppData {
     }
 
     /// Get the config file path
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the config directory cannot be determined.
     pub fn get_config_path() -> anyhow::Result<PathBuf> {
         Ok(Self::get_config_dir()?.join("wallp.json"))
     }
@@ -116,6 +126,10 @@ impl AppData {
     /// Get the binary directory (Linux only)
     /// - Linux: ~/.local/bin/
     /// - Windows/macOS: returns error (not applicable)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `BaseDirs` cannot be determined.
     #[cfg(target_os = "linux")]
     pub fn get_binary_dir() -> anyhow::Result<PathBuf> {
         let base_dirs =
@@ -132,6 +146,10 @@ impl AppData {
         anyhow::bail!("Binary directory only applicable on Linux")
     }
 
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the config file cannot be read or parsed.
     pub fn load() -> anyhow::Result<Self> {
         let path = Self::get_config_path()?;
 
@@ -141,11 +159,15 @@ impl AppData {
 
         let content = fs::read_to_string(&path).context("Failed to read wallp.json")?;
 
-        let data: AppData = serde_json::from_str(&content).context("Failed to parse wallp.json")?;
+        let data: Self = serde_json::from_str(&content).context("Failed to parse wallp.json")?;
 
         Ok(data)
     }
 
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the config directory cannot be created, serialized, or written.
     pub fn save(&self) -> anyhow::Result<()> {
         let path = Self::get_config_path()?;
         let dir = path.parent().context("Config path has no parent")?;
@@ -160,6 +182,10 @@ impl AppData {
     }
 
     /// Clean up old wallpapers that exceed `retention_days`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the data directory cannot be determined or if removing old wallpapers fails.
     pub fn cleanup_old_wallpapers(&mut self) -> anyhow::Result<u32> {
         // None = keep forever, Some(0) = delete immediately on next run
         let retention = match self.config.retention_days {
@@ -251,8 +277,9 @@ mod tests {
     #[test]
     fn test_config_serialization() {
         let config = Config::default();
-        let serialized = serde_json::to_string(&config).unwrap();
-        let deserialized: Config = serde_json::from_str(&serialized).unwrap();
+        let serialized = serde_json::to_string(&config).expect("Must serialize config");
+        let deserialized: Config =
+            serde_json::from_str(&serialized).expect("Must deserialize config");
         assert_eq!(config.unsplash_access_key, deserialized.unsplash_access_key);
         assert_eq!(config.collections, deserialized.collections);
     }
@@ -267,8 +294,9 @@ mod tests {
             author: Some("Test Author".to_string()),
             url: Some("https://example.com".to_string()),
         };
-        let serialized = serde_json::to_string(&wallpaper).unwrap();
-        let deserialized: Wallpaper = serde_json::from_str(&serialized).unwrap();
+        let serialized = serde_json::to_string(&wallpaper).expect("Must serialize wallpaper");
+        let deserialized: Wallpaper =
+            serde_json::from_str(&serialized).expect("Must deserialize wallpaper");
         assert_eq!(wallpaper.id, deserialized.id);
         assert_eq!(wallpaper.filename, deserialized.filename);
         assert_eq!(wallpaper.title, deserialized.title);
@@ -277,8 +305,9 @@ mod tests {
     #[test]
     fn test_app_data_serialization() {
         let app_data = AppData::default();
-        let serialized = serde_json::to_string(&app_data).unwrap();
-        let deserialized: AppData = serde_json::from_str(&serialized).unwrap();
+        let serialized = serde_json::to_string(&app_data).expect("Must serialize app_data");
+        let deserialized: AppData =
+            serde_json::from_str(&serialized).expect("Must deserialize app_data");
         assert_eq!(
             app_data.config.unsplash_access_key,
             deserialized.config.unsplash_access_key

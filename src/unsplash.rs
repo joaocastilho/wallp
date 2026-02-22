@@ -34,6 +34,7 @@ pub struct UnsplashClient {
 }
 
 impl UnsplashClient {
+    #[must_use]
     pub fn new(access_key: &str) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -41,6 +42,11 @@ impl UnsplashClient {
         }
     }
 
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the network request fails, if the response is not a valid JSON or missing elements,
+    /// or if the API returns an error status code.
     pub async fn fetch_random(&self, collections: &[String]) -> Result<UnsplashPhoto> {
         let url = "https://api.unsplash.com/photos/random";
         let collection_str = collections.join(",");
@@ -72,6 +78,10 @@ impl UnsplashClient {
         photos.into_iter().next().context("No photos returned")
     }
 
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the image fails to download or fails to save to the filesystem.
     pub async fn download_image(&self, url: &str, path: &PathBuf) -> Result<()> {
         let response = self
             .client
@@ -141,7 +151,7 @@ mod tests {
             }
         }"#;
 
-        let photo: UnsplashPhoto = serde_json::from_str(json).unwrap();
+        let photo: UnsplashPhoto = serde_json::from_str(json).expect("Must parse test JSON");
         assert_eq!(photo.id, "abc123");
         assert_eq!(photo.description, Some("A beautiful sunset".to_string()));
         assert_eq!(
@@ -168,7 +178,7 @@ mod tests {
             }
         }"#;
 
-        let photo: UnsplashPhoto = serde_json::from_str(json).unwrap();
+        let photo: UnsplashPhoto = serde_json::from_str(json).expect("Must parse test JSON");
         assert_eq!(photo.id, "abc123");
         assert_eq!(photo.description, None);
         assert_eq!(photo.alt_description, None);

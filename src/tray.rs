@@ -12,6 +12,7 @@ use tray_icon::{
 };
 
 #[allow(clippy::too_many_lines)]
+#[must_use]
 pub fn run() -> ExitCode {
     // Single instance check
     let instance = match single_instance::SingleInstance::new("wallp_tray_instance") {
@@ -154,11 +155,10 @@ pub fn run() -> ExitCode {
             } else if event.id == item_autostart.id() {
                 let is_enabled = item_autostart.is_checked();
                 // Get current exe for autostart path
-                let result = if let Ok(exe_path) = std::env::current_exe() {
-                    crate::cli::setup_autostart(is_enabled, &exe_path)
-                } else {
-                    Err(anyhow::anyhow!("Failed to determine current executable"))
-                };
+                let result = std::env::current_exe().map_or_else(
+                    |_| Err(anyhow::anyhow!("Failed to determine current executable")),
+                    |exe_path| crate::cli::setup_autostart(is_enabled, &exe_path),
+                );
 
                 if let Err(e) = result {
                     eprintln!("Failed to toggle autostart: {e}");
