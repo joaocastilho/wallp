@@ -19,15 +19,21 @@ fn main() {
 
         #[cfg(not(windows))]
         {
-            if std::env::var("WINDRES").is_err() {
-                if std::process::Command::new("x86_64-w64-mingw32-windres").arg("--version").output().is_ok() {
-                    res.set_windres_path("x86_64-w64-mingw32-windres");
-                }
+            if std::env::var("WINDRES").is_err()
+                && std::process::Command::new("x86_64-w64-mingw32-windres")
+                    .arg("--version")
+                    .output()
+                    .is_ok()
+            {
+                res.set_windres_path("x86_64-w64-mingw32-windres");
             }
-            if std::env::var("AR").is_err() {
-                if std::process::Command::new("x86_64-w64-mingw32-ar").arg("--version").output().is_ok() {
-                    res.set_ar_path("x86_64-w64-mingw32-ar");
-                }
+            if std::env::var("AR").is_err()
+                && std::process::Command::new("x86_64-w64-mingw32-ar")
+                    .arg("--version")
+                    .output()
+                    .is_ok()
+            {
+                res.set_ar_path("x86_64-w64-mingw32-ar");
             }
         }
 
@@ -45,7 +51,37 @@ fn main() {
         }
     }
 
+    check_formatting();
     set_build_timestamp();
+}
+
+fn check_formatting() {
+    // Only check formatting in non-release builds or when explicitly requested
+    // to avoid slowing down production builds in CI (where it's already checked)
+    if std::env::var("PROFILE").unwrap_or_default() == "release" {
+        return;
+    }
+
+    let output = std::process::Command::new("cargo")
+        .args(["fmt", "--", "--check"])
+        .output();
+
+    match output {
+        Ok(out) if !out.status.success() => {
+            let _stderr = String::from_utf8_lossy(&out.stderr);
+            println!(
+                "cargo:warning=❌ Code is not formatted! Please run 'cargo fmt' before committing."
+            );
+            // We don't exit with 1 here to avoid breaking the IDE's background cargo check,
+            // but the warning will be visible in the build output.
+            // For harder enforcement, we'd exit(1), but since we have a pre-commit hook,
+            // a warning here is a good balance for developer experience.
+        }
+        Err(e) => {
+            println!("cargo:warning=⚠️ Failed to run rustfmt: {e}");
+        }
+        _ => {}
+    }
 }
 
 fn set_build_timestamp() {
