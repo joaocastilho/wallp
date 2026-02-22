@@ -80,7 +80,7 @@ pub fn is_initialized() -> bool {
         }
     };
 
-    if is_installed || which::which(get_exe_name()).is_ok() || which::which("wallp").is_ok() {
+    if is_installed {
         return true;
     }
 
