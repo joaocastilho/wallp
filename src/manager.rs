@@ -11,23 +11,36 @@ pub async fn next() -> Result<()> {
     let mut app_data = AppData::load()?;
 
     // Check if we can "redo" -> move forward in history
-    if app_data.state.current_history_index < app_data.history.len().saturating_sub(1) {
-        app_data.state.current_history_index += 1;
-        let wallpaper = &app_data.history[app_data.state.current_history_index];
-        set_wallpaper_from_history(wallpaper)?;
+    while app_data.state.current_history_index < app_data.history.len().saturating_sub(1) {
+        let target_index = app_data.state.current_history_index + 1;
+        let wallpaper = &app_data.history[target_index];
+        
+        match set_wallpaper_from_history(wallpaper) {
+            Ok(()) => {
+                app_data.state.current_history_index = target_index;
 
-        // IMPORTANT: Update next_run calculation to prevent immediate re-triggering
-        // if we are just browsing history.
-        #[allow(clippy::cast_possible_wrap)]
-        let next_run =
-            Utc::now() + chrono::Duration::minutes(app_data.config.interval_minutes as i64);
-        app_data.state.next_run_at = next_run.to_rfc3339();
+                // IMPORTANT: Update next_run calculation to prevent immediate re-triggering
+                // if we are just browsing history.
+                #[allow(clippy::cast_possible_wrap)]
+                let next_run =
+                    Utc::now() + chrono::Duration::minutes(app_data.config.interval_minutes as i64);
+                app_data.state.next_run_at = next_run.to_rfc3339();
 
-        app_data.save()?;
-        return Ok(());
+                app_data.save()?;
+                return Ok(());
+            },
+            Err(e) => {
+                eprintln!("Warning: Failed to set next wallpaper (possibly missing file): {e}. Removing from history array.");
+                app_data.history.remove(target_index);
+                // By removing `target_index`, the active array shifts left. 
+                // The true 'next' item is now at `target_index` again.
+                // We deliberately do not increment `current_history_index`.
+            }
+        }
     }
 
     // Otherwise fetch new
+    app_data.save()?; // Save history array cleanups before continuing
     fetch_and_set_new(&mut app_data).await
 }
 
@@ -38,16 +51,29 @@ pub async fn next() -> Result<()> {
 pub async fn prev() -> Result<()> {
     let mut app_data = AppData::load()?;
 
-    if app_data.state.current_history_index > 0 {
-        app_data.state.current_history_index -= 1;
-        let wallpaper = &app_data.history[app_data.state.current_history_index];
-        set_wallpaper_from_history(wallpaper)?;
-        app_data.save()?;
-    } else {
-        anyhow::bail!("No previous wallpaper available");
+    while app_data.state.current_history_index > 0 {
+        let prev_index = app_data.state.current_history_index - 1;
+        let wallpaper = &app_data.history[prev_index];
+        
+        match set_wallpaper_from_history(wallpaper) {
+            Ok(()) => {
+                app_data.state.current_history_index = prev_index;
+                app_data.save()?;
+                return Ok(());
+            },
+            Err(e) => {
+                eprintln!("Warning: Failed to set previous wallpaper: {e}. Removing from history.");
+                app_data.history.remove(prev_index);
+                // When we remove prev_index, the current item shifts left into prev_index.
+                // We update current_history_index to track it, but we want to try the new prev_index next loop.
+                // The loop condition and target recalculation naturally handles this.
+                app_data.state.current_history_index = prev_index;
+            }
+        }
     }
 
-    Ok(())
+    app_data.save()?; // Save cleanups
+    anyhow::bail!("No previous wallpaper available (or all previous files were missing)");
 }
 
 ///
@@ -79,9 +105,21 @@ pub async fn set_by_index(index: usize) -> Result<()> {
         anyhow::bail!("Invalid index {} (max is {})", index, history_len - 1);
     }
 
-    app_data.state.current_history_index = actual_index;
     let wallpaper = &app_data.history[actual_index];
-    set_wallpaper_from_history(wallpaper)?;
+    if let Err(e) = set_wallpaper_from_history(wallpaper) {
+        eprintln!("Warning: Failed to set wallpaper by index: {e}. Removing from history.");
+        app_data.history.remove(actual_index);
+        
+        // Fix up current_history_index if we removed an item before or at the current index
+        if actual_index <= app_data.state.current_history_index {
+            app_data.state.current_history_index = app_data.state.current_history_index.saturating_sub(1);
+        }
+        
+        app_data.save()?;
+        return Err(e);
+    }
+
+    app_data.state.current_history_index = actual_index;
 
     #[allow(clippy::cast_possible_wrap)]
     let next_run = Utc::now() + chrono::Duration::minutes(app_data.config.interval_minutes as i64);

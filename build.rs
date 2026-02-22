@@ -16,7 +16,10 @@ fn main() {
     res.set("ProductVersion", "1.0.0.0");
     res.set("AssemblyVersion", "1.0.0.0");
 
-    res.compile().unwrap();
+    if let Err(e) = res.compile() {
+        eprintln!("Error compiling windows resources: {e}");
+        std::process::exit(1);
+    }
     set_build_timestamp();
 }
 

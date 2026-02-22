@@ -24,8 +24,14 @@ async fn check_and_run() -> anyhow::Result<()> {
 
     let next_run = chrono::DateTime::parse_from_rfc3339(&app_data.state.next_run_at)?;
 
-    if Utc::now() >= next_run {
-        manager::next().await?;
+    if Utc::now() >= next_run && let Err(e) = manager::next().await {
+        eprintln!("Scheduler error: {e}. Applying 15-minute backoff to prevent rate-limiting.");
+        if let Ok(mut backoff_app_data) = AppData::load() {
+            #[allow(clippy::cast_possible_wrap)]
+            let backoff_time = Utc::now() + chrono::Duration::minutes(15);
+            backoff_app_data.state.next_run_at = backoff_time.to_rfc3339();
+            let _ = backoff_app_data.save();
+        }
     }
 
     Ok(())
