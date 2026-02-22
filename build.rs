@@ -1,31 +1,41 @@
-#[cfg(windows)]
 fn main() {
-    let mut res = winres::WindowsResource::new();
-    if std::path::Path::new("icon.ico").exists() {
-        res.set_icon("icon.ico");
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+
+    if target_os == "windows" {
+        let mut res = winres::WindowsResource::new();
+        if std::path::Path::new("icon.ico").exists() {
+            res.set_icon("icon.ico");
+        }
+
+        // Set metadata for Task Manager / Startup / Properties
+        res.set("FileDescription", "Wallp - Wallpaper changer");
+        res.set("ProductName", "Wallp - Wallpaper changer");
+        res.set("CompanyName", "Joao Castilho");
+        res.set("LegalCopyright", "Copyright (c) 2026 Joao Castilho");
+        res.set("InternalName", "wallp.exe");
+        res.set("OriginalFilename", "wallp.exe");
+        res.set("FileVersion", "1.1.0.0");
+        res.set("ProductVersion", "1.1.0.0");
+        res.set_language(0x0409); // English (United States)
+
+        // When cross-compiling from Linux to Windows (GNU), 
+        // winres might need help finding the resource compiler.
+        #[cfg(not(windows))]
+        {
+            if std::env::var("WINDRES").is_err() {
+                if std::process::Command::new("x86_64-w64-mingw32-windres").arg("--version").output().is_ok() {
+                    res.set_windres_path("x86_64-w64-mingw32-windres");
+                }
+            }
+        }
+
+        if let Err(e) = res.compile() {
+            eprintln!("Warning: Failed to compile Windows resources: {e}");
+            // Don't exit(1) here to allow the build to proceed even without metadata/icon
+            // if the tools are missing in the current environment.
+        }
     }
 
-    // Set metadata for Task Manager / Startup
-    res.set("FileDescription", "Wallp - Wallpaper changer");
-    res.set("ProductName", "Wallp - Wallpaper changer");
-    res.set("CompanyName", "Joao Castilho");
-    res.set("LegalCopyright", "Copyright (c) 2026 Joao Castilho");
-    res.set("InternalName", "wallp.exe");
-    res.set("OriginalFilename", "wallp.exe");
-    res.set("FileVersion", "1.1.0.0");
-    res.set("ProductVersion", "1.1.0.0");
-    res.set("AssemblyVersion", "1.1.0.0");
-    res.set_language(0x0409);
-
-    if let Err(e) = res.compile() {
-        eprintln!("Error compiling windows resources: {e}");
-        std::process::exit(1);
-    }
-    set_build_timestamp();
-}
-
-#[cfg(not(windows))]
-fn main() {
     set_build_timestamp();
 }
 
