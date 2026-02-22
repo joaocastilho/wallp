@@ -1731,23 +1731,27 @@ export EDITOR=vim"#;
     }
 
     #[test]
-    fn test_parse_interval_valid_minutes() {
-        assert_eq!(parse_interval("30m").unwrap(), 30);
+    fn test_parse_interval_valid_minutes() -> anyhow::Result<()> {
+        assert_eq!(parse_interval("30m").map_err(|e| anyhow::anyhow!(e))?, 30);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_interval_valid_hours() {
-        assert_eq!(parse_interval("2h").unwrap(), 120);
+    fn test_parse_interval_valid_hours() -> anyhow::Result<()> {
+        assert_eq!(parse_interval("2h").map_err(|e| anyhow::anyhow!(e))?, 120);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_interval_valid_days() {
-        assert_eq!(parse_interval("1d").unwrap(), 1440);
+    fn test_parse_interval_valid_days() -> anyhow::Result<()> {
+        assert_eq!(parse_interval("1d").map_err(|e| anyhow::anyhow!(e))?, 1440);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_interval_default() {
-        assert_eq!(parse_interval("45").unwrap(), 45);
+    fn test_parse_interval_default() -> anyhow::Result<()> {
+        assert_eq!(parse_interval("45").map_err(|e| anyhow::anyhow!(e))?, 45);
+        Ok(())
     }
 
     #[test]

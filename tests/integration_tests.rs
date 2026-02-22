@@ -2,7 +2,7 @@ use std::fs;
 use tempfile::TempDir;
 
 #[test]
-fn test_config_serialization_roundtrip() {
+fn test_config_serialization_roundtrip() -> anyhow::Result<()> {
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -22,39 +22,42 @@ fn test_config_serialization_roundtrip() {
         retention_days: Some(14),
     };
 
-    let serialized = serde_json::to_string_pretty(&config).expect("Must serialize config");
+    let serialized = serde_json::to_string_pretty(&config)?;
 
-    let temp_dir = TempDir::new().expect("Must create test dir");
+    let temp_dir = TempDir::new()?;
     let config_path = temp_dir.path().join("config.json");
-    fs::write(&config_path, &serialized).expect("Must write config file");
+    fs::write(&config_path, &serialized)?;
 
-    let deserialized: Config = serde_json::from_str(&serialized).expect("Must deserialize config");
+    let deserialized: Config = serde_json::from_str(&serialized)?;
 
     assert_eq!(deserialized.unsplash_access_key, "test_key");
     assert_eq!(deserialized.interval_minutes, 60);
+    Ok(())
 }
 
 #[test]
-fn test_config_handles_missing_file() {
-    let temp_dir = TempDir::new().expect("Must create test dir");
+fn test_config_handles_missing_file() -> anyhow::Result<()> {
+    let temp_dir = TempDir::new()?;
     let config_path = temp_dir.path().join("nonexistent.json");
 
     // Should return default config when file doesn't exist
     assert!(!config_path.exists());
+    Ok(())
 }
 
 #[test]
-fn test_invalid_json_handling() {
-    let temp_dir = TempDir::new().expect("Must create test dir");
+fn test_invalid_json_handling() -> anyhow::Result<()> {
+    let temp_dir = TempDir::new()?;
     let config_path = temp_dir.path().join("invalid.json");
 
     // Write invalid JSON
-    fs::write(&config_path, "{ invalid json }").expect("Must write invalid json");
+    fs::write(&config_path, "{ invalid json }")?;
 
     // Try to parse - should fail
-    let content = fs::read_to_string(&config_path).expect("Must read file contents");
+    let content = fs::read_to_string(&config_path)?;
     let result: Result<serde_json::Value, _> = serde_json::from_str(&content);
     assert!(result.is_err());
+    Ok(())
 }
 
 #[test]

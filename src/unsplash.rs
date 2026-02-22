@@ -135,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unsplash_photo_deserialization() {
+    fn test_unsplash_photo_deserialization() -> anyhow::Result<()> {
         let json = r#"{
             "id": "abc123",
             "description": "A beautiful sunset",
@@ -151,7 +151,7 @@ mod tests {
             }
         }"#;
 
-        let photo: UnsplashPhoto = serde_json::from_str(json).expect("Must parse test JSON");
+        let photo: UnsplashPhoto = serde_json::from_str(json)?;
         assert_eq!(photo.id, "abc123");
         assert_eq!(photo.description, Some("A beautiful sunset".to_string()));
         assert_eq!(
@@ -161,10 +161,11 @@ mod tests {
         assert_eq!(photo.urls.full, "https://example.com/full.jpg");
         assert_eq!(photo.user.name, "John Doe");
         assert_eq!(photo.links.html, "https://unsplash.com/photos/abc123");
+        Ok(())
     }
 
     #[test]
-    fn test_unsplash_photo_optional_fields() {
+    fn test_unsplash_photo_optional_fields() -> anyhow::Result<()> {
         let json = r#"{
             "id": "abc123",
             "urls": {
@@ -178,9 +179,10 @@ mod tests {
             }
         }"#;
 
-        let photo: UnsplashPhoto = serde_json::from_str(json).expect("Must parse test JSON");
+        let photo: UnsplashPhoto = serde_json::from_str(json)?;
         assert_eq!(photo.id, "abc123");
         assert_eq!(photo.description, None);
         assert_eq!(photo.alt_description, None);
+        Ok(())
     }
 }

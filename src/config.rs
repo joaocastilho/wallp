@@ -182,18 +182,21 @@ impl AppData {
     }
 
     /// Clean up old wallpapers that exceed `retention_days`
+    ///
+    /// # Errors
+    /// Returns an error if removing old wallpapers fails or the data directory cannot be fetched.
     pub fn cleanup_old_wallpapers(&mut self) -> anyhow::Result<u32> {
         let data_dir = Self::get_data_dir()?;
-        self.cleanup_old_wallpapers_in(&data_dir)
+        Ok(self.cleanup_old_wallpapers_in(&data_dir))
     }
 
     /// Internal logic for cleaning up old wallpapers. Exposed for testing.
     ///
     /// # Errors
     /// Returns an error if removing old wallpapers fails.
-    pub fn cleanup_old_wallpapers_in(&mut self, data_dir: &std::path::Path) -> anyhow::Result<u32> {
+    pub fn cleanup_old_wallpapers_in(&mut self, data_dir: &std::path::Path) -> u32 {
         let Some(retention) = self.config.retention_days else {
-            return Ok(0); // Keep forever
+            return 0; // Keep forever
         };
         let wallpapers_dir = data_dir.join("wallpapers");
         let mut removed_count = 0;
@@ -222,21 +225,20 @@ impl AppData {
 
             self.history.retain(|wallpaper| {
                 if let Ok(applied_at) = chrono::DateTime::parse_from_rfc3339(&wallpaper.applied_at)
+                    && applied_at < cutoff_date
                 {
-                    if applied_at < cutoff_date {
-                        let file_path = wallpapers_dir.join(&wallpaper.filename);
-                        if file_path.exists() {
-                            if let Err(e) = fs::remove_file(&file_path) {
-                                eprintln!(
-                                    "Warning: Failed to delete old wallpaper file {}: {}",
-                                    wallpaper.filename, e
-                                );
-                            } else {
-                                removed_count += 1;
-                            }
+                    let file_path = wallpapers_dir.join(&wallpaper.filename);
+                    if file_path.exists() {
+                        if let Err(e) = fs::remove_file(&file_path) {
+                            eprintln!(
+                                "Warning: Failed to delete old wallpaper file {}: {}",
+                                wallpaper.filename, e
+                            );
+                        } else {
+                            removed_count += 1;
                         }
-                        return false; // Remove from history
                     }
+                    return false; // Remove from history
                 }
                 true // Keep in history
             });
@@ -247,7 +249,7 @@ impl AppData {
             self.state.current_history_index = self.history.len().saturating_sub(1);
         }
 
-        Ok(removed_count)
+        removed_count
     }
 }
 
@@ -281,17 +283,18 @@ mod tests {
     }
 
     #[test]
-    fn test_config_serialization() {
+    fn test_config_serialization() -> anyhow::Result<()> {
         let config = Config::default();
-        let serialized = serde_json::to_string(&config).expect("Must serialize config");
+        let serialized = serde_json::to_string(&config)?;
         let deserialized: Config =
-            serde_json::from_str(&serialized).expect("Must deserialize config");
+            serde_json::from_str(&serialized)?;
         assert_eq!(config.unsplash_access_key, deserialized.unsplash_access_key);
         assert_eq!(config.collections, deserialized.collections);
+        Ok(())
     }
 
     #[test]
-    fn test_wallpaper_serialization() {
+    fn test_wallpaper_serialization() -> anyhow::Result<()> {
         let wallpaper = Wallpaper {
             id: "test_id".to_string(),
             filename: "test.jpg".to_string(),
@@ -300,29 +303,31 @@ mod tests {
             author: Some("Test Author".to_string()),
             url: Some("https://example.com".to_string()),
         };
-        let serialized = serde_json::to_string(&wallpaper).expect("Must serialize wallpaper");
+        let serialized = serde_json::to_string(&wallpaper)?;
         let deserialized: Wallpaper =
-            serde_json::from_str(&serialized).expect("Must deserialize wallpaper");
+            serde_json::from_str(&serialized)?;
         assert_eq!(wallpaper.id, deserialized.id);
         assert_eq!(wallpaper.filename, deserialized.filename);
         assert_eq!(wallpaper.title, deserialized.title);
+        Ok(())
     }
 
     #[test]
-    fn test_app_data_serialization() {
+    fn test_app_data_serialization() -> anyhow::Result<()> {
         let app_data = AppData::default();
-        let serialized = serde_json::to_string(&app_data).expect("Must serialize app_data");
+        let serialized = serde_json::to_string(&app_data)?;
         let deserialized: AppData =
-            serde_json::from_str(&serialized).expect("Must deserialize app_data");
+            serde_json::from_str(&serialized)?;
         assert_eq!(
             app_data.config.unsplash_access_key,
             deserialized.config.unsplash_access_key
         );
+        Ok(())
     }
 
     #[test]
-    fn test_cleanup_old_wallpapers_keep_forever() {
-        let temp_dir = tempfile::TempDir::new().expect("Must create temp dir");
+    fn test_cleanup_old_wallpapers_keep_forever() -> anyhow::Result<()> {
+        let temp_dir = tempfile::TempDir::new()?;
         let mut app_data = AppData::default();
         app_data.config.retention_days = None;
         app_data.history.push(Wallpaper {
@@ -335,24 +340,24 @@ mod tests {
         });
 
         let removed = app_data
-            .cleanup_old_wallpapers_in(temp_dir.path())
-            .expect("Must cleanup");
+            .cleanup_old_wallpapers_in(temp_dir.path());
         assert_eq!(removed, 0);
         assert_eq!(app_data.history.len(), 1);
+        Ok(())
     }
 
     #[test]
-    fn test_cleanup_old_wallpapers_zero_retention() {
-        let temp_dir = tempfile::TempDir::new().expect("Must create temp dir");
+    fn test_cleanup_old_wallpapers_zero_retention() -> anyhow::Result<()> {
+        let temp_dir = tempfile::TempDir::new()?;
         let wallpapers_dir = temp_dir.path().join("wallpapers");
-        std::fs::create_dir_all(&wallpapers_dir).expect("Must create wallpapers dir");
+        std::fs::create_dir_all(&wallpapers_dir)?;
 
         let mut app_data = AppData::default();
         app_data.config.retention_days = Some(0);
 
         for i in 1..=3 {
             let filename = format!("{i}.jpg");
-            std::fs::write(wallpapers_dir.join(&filename), "data").expect("Must test file");
+            std::fs::write(wallpapers_dir.join(&filename), "data")?;
             app_data.history.push(Wallpaper {
                 id: i.to_string(),
                 filename,
@@ -364,8 +369,7 @@ mod tests {
         }
 
         let removed = app_data
-            .cleanup_old_wallpapers_in(temp_dir.path())
-            .expect("Must cleanup");
+            .cleanup_old_wallpapers_in(temp_dir.path());
         assert_eq!(removed, 2);
         assert_eq!(app_data.history.len(), 1);
         assert_eq!(app_data.history[0].id, "3");
@@ -373,13 +377,14 @@ mod tests {
         assert!(!wallpapers_dir.join("1.jpg").exists());
         assert!(!wallpapers_dir.join("2.jpg").exists());
         assert!(wallpapers_dir.join("3.jpg").exists());
+        Ok(())
     }
 
     #[test]
-    fn test_cleanup_old_wallpapers_standard_retention() {
-        let temp_dir = tempfile::TempDir::new().expect("Must create temp dir");
+    fn test_cleanup_old_wallpapers_standard_retention() -> anyhow::Result<()> {
+        let temp_dir = tempfile::TempDir::new()?;
         let wallpapers_dir = temp_dir.path().join("wallpapers");
-        std::fs::create_dir_all(&wallpapers_dir).expect("Must create wallpapers dir");
+        std::fs::create_dir_all(&wallpapers_dir)?;
 
         let mut app_data = AppData::default();
         app_data.config.retention_days = Some(3);
@@ -388,7 +393,7 @@ mod tests {
         let old_time = now - chrono::Duration::days(5);
         let recent_time = now - chrono::Duration::days(1);
 
-        std::fs::write(wallpapers_dir.join("old.jpg"), "data").expect("Must test file");
+        std::fs::write(wallpapers_dir.join("old.jpg"), "data")?;
         app_data.history.push(Wallpaper {
             id: "old".to_string(),
             filename: "old.jpg".to_string(),
@@ -398,7 +403,7 @@ mod tests {
             url: None,
         });
 
-        std::fs::write(wallpapers_dir.join("recent.jpg"), "data").expect("Must test file");
+        std::fs::write(wallpapers_dir.join("recent.jpg"), "data")?;
         app_data.history.push(Wallpaper {
             id: "recent".to_string(),
             filename: "recent.jpg".to_string(),
@@ -409,8 +414,7 @@ mod tests {
         });
 
         let removed = app_data
-            .cleanup_old_wallpapers_in(temp_dir.path())
-            .expect("Must cleanup");
+            .cleanup_old_wallpapers_in(temp_dir.path());
 
         assert_eq!(removed, 1);
         assert_eq!(app_data.history.len(), 1);
@@ -418,5 +422,6 @@ mod tests {
 
         assert!(!wallpapers_dir.join("old.jpg").exists());
         assert!(wallpapers_dir.join("recent.jpg").exists());
+        Ok(())
     }
 }

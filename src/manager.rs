@@ -191,19 +191,19 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    fn create_test_env() -> (TempDir, AppData) {
-        let temp_dir = TempDir::new().expect("Must create test dir");
+    fn create_test_env() -> anyhow::Result<(TempDir, AppData)> {
+        let temp_dir = TempDir::new()?;
         let data_dir = temp_dir.path().join("wallp");
-        fs::create_dir_all(&data_dir).expect("Must create nested dir");
-        fs::create_dir_all(data_dir.join("wallpapers")).expect("Must create wallpaper dir");
+        fs::create_dir_all(&data_dir)?;
+        fs::create_dir_all(data_dir.join("wallpapers"))?;
 
         let app_data = AppData::default();
-        (temp_dir, app_data)
+        Ok((temp_dir, app_data))
     }
 
     #[test]
-    fn test_get_current_wallpaper_empty_history() {
-        let (_, mut app_data) = create_test_env();
+    fn test_get_current_wallpaper_empty_history() -> anyhow::Result<()> {
+        let (_, mut app_data) = create_test_env()?;
         app_data.history.clear();
         app_data.state.current_history_index = 0;
 
@@ -218,11 +218,12 @@ mod tests {
         };
 
         assert!(result.is_none());
+        Ok(())
     }
 
     #[test]
-    fn test_get_current_wallpaper_with_history() {
-        let (_, mut app_data) = create_test_env();
+    fn test_get_current_wallpaper_with_history() -> anyhow::Result<()> {
+        let (_, mut app_data) = create_test_env()?;
 
         app_data.history.push(Wallpaper {
             id: "test_id".to_string(),
@@ -245,12 +246,13 @@ mod tests {
         };
 
         assert!(result.is_some());
-        assert_eq!(result.expect("Should not be None").id, "test_id");
+        assert_eq!(result.map(|w| w.id), Some("test_id".to_string()));
+        Ok(())
     }
 
     #[test]
-    fn test_history_index_bounds_next() {
-        let (_, mut app_data) = create_test_env();
+    fn test_history_index_bounds_next() -> anyhow::Result<()> {
+        let (_, mut app_data) = create_test_env()?;
 
         // Add 3 wallpapers
         for i in 0..3 {
@@ -269,11 +271,12 @@ mod tests {
         let can_go_forward =
             app_data.state.current_history_index < app_data.history.len().saturating_sub(1);
         assert!(!can_go_forward); // Cannot go forward, would fetch new
+        Ok(())
     }
 
     #[test]
-    fn test_history_index_bounds_prev() {
-        let (_, mut app_data) = create_test_env();
+    fn test_history_index_bounds_prev() -> anyhow::Result<()> {
+        let (_, mut app_data) = create_test_env()?;
 
         app_data.history.push(Wallpaper {
             id: "id_0".to_string(),
@@ -289,11 +292,12 @@ mod tests {
         // Simulate prev() logic
         let can_go_back = app_data.state.current_history_index > 0;
         assert!(!can_go_back); // Cannot go back from first item
+        Ok(())
     }
 
     #[test]
-    fn test_history_navigation_middle() {
-        let (_, mut app_data) = create_test_env();
+    fn test_history_navigation_middle() -> anyhow::Result<()> {
+        let (_, mut app_data) = create_test_env()?;
 
         for i in 0..3 {
             app_data.history.push(Wallpaper {
@@ -312,5 +316,6 @@ mod tests {
 
         // Can go next
         assert!(app_data.state.current_history_index < app_data.history.len() - 1);
+        Ok(())
     }
 }

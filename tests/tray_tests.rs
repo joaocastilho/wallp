@@ -5,11 +5,11 @@ mod tests {
     use wallp::config::AppData;
 
     #[test]
-    fn test_notification_build() {
+    fn test_notification_build() -> anyhow::Result<()> {
         use notify_rust::Notification;
-        let temp_dir = tempdir().expect("Failed to create temporary directory"); // Added temp_dir initialization
+        let temp_dir = tempdir()?; // Added temp_dir initialization
         let icon_path = temp_dir.path().join("icon.ico");
-        fs::write(&icon_path, b"dummy icon data").expect("Must create dummy icon");
+        fs::write(&icon_path, b"dummy icon data")?;
 
         let app_data = AppData::default();
         let _ = app_data.config.unsplash_access_key; // Keep for demonstration of config access but without unused warning
@@ -18,6 +18,7 @@ mod tests {
             .appname("Wallp")
             .summary("Test")
             .body("Body");
+        Ok(())
     }
 
     #[test]
