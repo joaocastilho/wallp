@@ -7,14 +7,15 @@ fn main() {
 
     // Set metadata for Task Manager / Startup
     res.set("FileDescription", "Wallp - Wallpaper changer");
-    res.set("ProductName", "Wallp");
+    res.set("ProductName", "Wallp - Wallpaper changer");
     res.set("CompanyName", "Joao Castilho");
     res.set("LegalCopyright", "Copyright (c) 2026 Joao Castilho");
     res.set("InternalName", "wallp.exe");
     res.set("OriginalFilename", "wallp.exe");
-    res.set("FileVersion", "1.0.0.0");
-    res.set("ProductVersion", "1.0.0.0");
-    res.set("AssemblyVersion", "1.0.0.0");
+    res.set("FileVersion", "1.1.0.0");
+    res.set("ProductVersion", "1.1.0.0");
+    res.set("AssemblyVersion", "1.1.0.0");
+    res.set_language(0x0409);
 
     if let Err(e) = res.compile() {
         eprintln!("Error compiling windows resources: {e}");

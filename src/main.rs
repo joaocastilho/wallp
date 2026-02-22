@@ -47,7 +47,7 @@ const ASCII_ART: &str = concat!(
                                  ██ |      
                                  \__|      
 
-  wallp v1.0.0
+  wallp v1.1.0
   Built: "#,
     env!("BUILD_DATETIME"),
     r#"
