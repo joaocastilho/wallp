@@ -286,8 +286,7 @@ mod tests {
     fn test_config_serialization() -> anyhow::Result<()> {
         let config = Config::default();
         let serialized = serde_json::to_string(&config)?;
-        let deserialized: Config =
-            serde_json::from_str(&serialized)?;
+        let deserialized: Config = serde_json::from_str(&serialized)?;
         assert_eq!(config.unsplash_access_key, deserialized.unsplash_access_key);
         assert_eq!(config.collections, deserialized.collections);
         Ok(())
@@ -304,8 +303,7 @@ mod tests {
             url: Some("https://example.com".to_string()),
         };
         let serialized = serde_json::to_string(&wallpaper)?;
-        let deserialized: Wallpaper =
-            serde_json::from_str(&serialized)?;
+        let deserialized: Wallpaper = serde_json::from_str(&serialized)?;
         assert_eq!(wallpaper.id, deserialized.id);
         assert_eq!(wallpaper.filename, deserialized.filename);
         assert_eq!(wallpaper.title, deserialized.title);
@@ -316,8 +314,7 @@ mod tests {
     fn test_app_data_serialization() -> anyhow::Result<()> {
         let app_data = AppData::default();
         let serialized = serde_json::to_string(&app_data)?;
-        let deserialized: AppData =
-            serde_json::from_str(&serialized)?;
+        let deserialized: AppData = serde_json::from_str(&serialized)?;
         assert_eq!(
             app_data.config.unsplash_access_key,
             deserialized.config.unsplash_access_key
@@ -339,8 +336,7 @@ mod tests {
             url: None,
         });
 
-        let removed = app_data
-            .cleanup_old_wallpapers_in(temp_dir.path());
+        let removed = app_data.cleanup_old_wallpapers_in(temp_dir.path());
         assert_eq!(removed, 0);
         assert_eq!(app_data.history.len(), 1);
         Ok(())
@@ -368,8 +364,7 @@ mod tests {
             });
         }
 
-        let removed = app_data
-            .cleanup_old_wallpapers_in(temp_dir.path());
+        let removed = app_data.cleanup_old_wallpapers_in(temp_dir.path());
         assert_eq!(removed, 2);
         assert_eq!(app_data.history.len(), 1);
         assert_eq!(app_data.history[0].id, "3");
@@ -413,8 +408,7 @@ mod tests {
             url: None,
         });
 
-        let removed = app_data
-            .cleanup_old_wallpapers_in(temp_dir.path());
+        let removed = app_data.cleanup_old_wallpapers_in(temp_dir.path());
 
         assert_eq!(removed, 1);
         assert_eq!(app_data.history.len(), 1);

@@ -14,7 +14,7 @@ pub async fn next() -> Result<()> {
     while app_data.state.current_history_index < app_data.history.len().saturating_sub(1) {
         let target_index = app_data.state.current_history_index + 1;
         let wallpaper = &app_data.history[target_index];
-        
+
         match set_wallpaper_from_history(wallpaper) {
             Ok(()) => {
                 app_data.state.current_history_index = target_index;
@@ -28,11 +28,13 @@ pub async fn next() -> Result<()> {
 
                 app_data.save()?;
                 return Ok(());
-            },
+            }
             Err(e) => {
-                eprintln!("Warning: Failed to set next wallpaper (possibly missing file): {e}. Removing from history array.");
+                eprintln!(
+                    "Warning: Failed to set next wallpaper (possibly missing file): {e}. Removing from history array."
+                );
                 app_data.history.remove(target_index);
-                // By removing `target_index`, the active array shifts left. 
+                // By removing `target_index`, the active array shifts left.
                 // The true 'next' item is now at `target_index` again.
                 // We deliberately do not increment `current_history_index`.
             }
@@ -54,13 +56,13 @@ pub async fn prev() -> Result<()> {
     while app_data.state.current_history_index > 0 {
         let prev_index = app_data.state.current_history_index - 1;
         let wallpaper = &app_data.history[prev_index];
-        
+
         match set_wallpaper_from_history(wallpaper) {
             Ok(()) => {
                 app_data.state.current_history_index = prev_index;
                 app_data.save()?;
                 return Ok(());
-            },
+            }
             Err(e) => {
                 eprintln!("Warning: Failed to set previous wallpaper: {e}. Removing from history.");
                 app_data.history.remove(prev_index);
@@ -109,12 +111,13 @@ pub async fn set_by_index(index: usize) -> Result<()> {
     if let Err(e) = set_wallpaper_from_history(wallpaper) {
         eprintln!("Warning: Failed to set wallpaper by index: {e}. Removing from history.");
         app_data.history.remove(actual_index);
-        
+
         // Fix up current_history_index if we removed an item before or at the current index
         if actual_index <= app_data.state.current_history_index {
-            app_data.state.current_history_index = app_data.state.current_history_index.saturating_sub(1);
+            app_data.state.current_history_index =
+                app_data.state.current_history_index.saturating_sub(1);
         }
-        
+
         app_data.save()?;
         return Err(e);
     }
