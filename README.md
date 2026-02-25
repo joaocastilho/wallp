@@ -55,6 +55,10 @@ Or install from source with `cargo install --git https://github.com/joaocastilho
 2. Place it in a directory that's in your PATH
 3. Run `wallp` - on first run, the setup wizard will start automatically
 
+**OS-Specific Notes for Downloaded Binaries:**
+- 🍎 **macOS**: Gatekeeper may block the app since it is an unsigned binary. If it warns that the developer cannot be verified, bypass this by setting an exception (right-click the app -> **Open**).
+- 🐧 **Linux**: Downloaded files lack execution permissions by default. You must make the file executable before running it via your terminal: `chmod +x wallp-linux-x64`.
+
 #### Option 2: Build from Source
 
 ```bash

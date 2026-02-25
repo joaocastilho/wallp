@@ -2,6 +2,8 @@
 name = "wallp"
 version = "1.1.0"
 edition = "2024"
+description = "Wallp - Wallpaper Changer"
+license = "MIT"
 
 [package.metadata.winres]
 # This section is empty but needed to quiet winres warnings
