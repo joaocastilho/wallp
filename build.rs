@@ -13,8 +13,8 @@ fn main() {
         res.set("LegalCopyright", "Copyright (c) 2026 Joao Castilho");
         res.set("InternalName", "wallp.exe");
         res.set("OriginalFilename", "wallp.exe");
-        res.set("FileVersion", "1.1.0.0");
-        res.set("ProductVersion", "1.1.0.0");
+        res.set("FileVersion", "1.2.0.0");
+        res.set("ProductVersion", "1.2.0.0");
         res.set_language(0x0409);
 
         #[cfg(not(windows))]
