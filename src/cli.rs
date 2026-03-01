@@ -216,7 +216,9 @@ pub fn is_autostart_enabled() -> bool {
         return false;
     };
 
-    let Some(exe_path) = current_exe.to_str() else {
+    let exe_path = current_exe.canonicalize().unwrap_or(current_exe);
+
+    let Some(exe_path) = exe_path.to_str() else {
         return false;
     };
 
@@ -876,7 +878,10 @@ fn build_auto_launch(app_path: &str) -> Result<auto_launch::AutoLaunch> {
 ///
 /// Returns an error if the auto-launch builder fails or if enabling/disabling fails.
 pub fn setup_autostart(enable: bool, exe_path: &Path) -> Result<()> {
-    let app_path = exe_path
+    let canonical_path = exe_path
+        .canonicalize()
+        .unwrap_or_else(|_| exe_path.to_path_buf());
+    let app_path = canonical_path
         .to_str()
         .context("Failed to get executable path as string")?;
 

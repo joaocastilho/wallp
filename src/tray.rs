@@ -197,7 +197,9 @@ fn check_autostart_status() -> bool {
         return false;
     };
 
-    let Some(exe_path) = current_exe.to_str() else {
+    let exe_path = current_exe.canonicalize().unwrap_or(current_exe);
+
+    let Some(exe_path) = exe_path.to_str() else {
         return false;
     };
 

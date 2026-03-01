@@ -40,9 +40,13 @@ fn main() {
         if let Err(e) = res.compile() {
             eprintln!("Warning: Failed to compile Windows resources: {e}");
         } else {
+            let out_dir = std::env::var("OUT_DIR").unwrap_or_default();
+            let resource_lib = std::path::Path::new(&out_dir).join("resource.lib");
+            if resource_lib.exists() {
+                println!("cargo:rustc-link-arg={}", resource_lib.display());
+            }
             #[cfg(not(windows))]
             {
-                let out_dir = std::env::var("OUT_DIR").unwrap_or_default();
                 let resource_o = std::path::Path::new(&out_dir).join("resource.o");
                 if resource_o.exists() {
                     println!("cargo:rustc-link-arg={}", resource_o.display());
