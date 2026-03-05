@@ -43,7 +43,7 @@ fn main() {
             let out_dir = std::env::var("OUT_DIR").unwrap_or_default();
             let resource_lib = std::path::Path::new(&out_dir).join("resource.lib");
             if resource_lib.exists() {
-                println!("cargo:rustc-link-arg={}", resource_lib.display());
+                println!("cargo:rustc-link-arg-bins={}", resource_lib.display());
             }
             #[cfg(not(windows))]
             {

@@ -10,7 +10,7 @@ pub async fn start_background_task() {
         interval.tick().await;
 
         if let Err(e) = check_and_run().await {
-            eprintln!("Scheduler error: {e}");
+            tracing::warn!("Scheduler error: {e}");
         }
     }
 }
@@ -27,7 +27,9 @@ async fn check_and_run() -> anyhow::Result<()> {
     if Utc::now() >= next_run
         && let Err(e) = manager::next().await
     {
-        eprintln!("Scheduler error: {e}. Applying 15-minute backoff to prevent rate-limiting.");
+        tracing::warn!(
+            "Scheduler error: {e}. Applying 15-minute backoff to prevent rate-limiting."
+        );
         if let Ok(mut backoff_app_data) = AppData::load() {
             #[allow(clippy::cast_possible_wrap)]
             let backoff_time = Utc::now() + chrono::Duration::minutes(15);

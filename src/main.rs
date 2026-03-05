@@ -6,6 +6,7 @@ use std::process::ExitCode;
 
 mod cli;
 mod config;
+mod logging;
 mod manager;
 mod scheduler;
 mod tray;
@@ -123,6 +124,10 @@ fn main() -> ExitCode {
 
             #[cfg(target_os = "windows")]
             win_utils::detach_console();
+
+            if let Err(e) = logging::init() {
+                eprintln!("Failed to initialize logging: {e}");
+            }
 
             return tray::run();
         }

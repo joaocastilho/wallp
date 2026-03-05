@@ -11,6 +11,9 @@ use tray_icon::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
 };
 
+/// Interval between watchdog checks when restarting the scheduler after a crash.
+const WATCHDOG_RESTART_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
+
 #[allow(clippy::too_many_lines)]
 #[must_use]
 pub fn run() -> ExitCode {
@@ -18,7 +21,7 @@ pub fn run() -> ExitCode {
     let instance = match single_instance::SingleInstance::new("wallp_tray_instance") {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("Failed to create single instance: {e}");
+            tracing::error!("Failed to create single instance: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -26,11 +29,49 @@ pub fn run() -> ExitCode {
         return ExitCode::SUCCESS; // Silently exit if already running
     }
 
-    // Spawn Tokio Runtime for async tasks
-    std::thread::spawn(|| match tokio::runtime::Runtime::new() {
-        Ok(rt) => rt.block_on(scheduler::start_background_task()),
-        Err(e) => eprintln!("Failed to create tokio runtime: {e}"),
-    });
+    // Spawn a watchdog thread that keeps the scheduler alive.
+    // If the scheduler thread panics or exits, the watchdog restarts it.
+    std::thread::Builder::new()
+        .name("scheduler-watchdog".into())
+        .spawn(|| {
+            loop {
+                tracing::info!("Watchdog: starting scheduler thread");
+
+                let handle = std::thread::Builder::new()
+                    .name("scheduler".into())
+                    .spawn(|| match tokio::runtime::Runtime::new() {
+                        Ok(rt) => rt.block_on(scheduler::start_background_task()),
+                        Err(e) => tracing::error!("Failed to create tokio runtime: {e}"),
+                    });
+
+                match handle {
+                    Ok(h) => {
+                        if let Err(e) = h.join() {
+                            tracing::error!(
+                                "Watchdog: scheduler thread panicked: {e:?}. Restarting in {}s...",
+                                WATCHDOG_RESTART_DELAY.as_secs()
+                            );
+                        } else {
+                            // start_background_task runs an infinite loop, so it should
+                            // never return normally. If it does, restart anyway.
+                            tracing::warn!(
+                                "Watchdog: scheduler exited unexpectedly. Restarting in {}s...",
+                                WATCHDOG_RESTART_DELAY.as_secs()
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Watchdog: failed to spawn scheduler thread: {e}. Retrying in {}s...",
+                            WATCHDOG_RESTART_DELAY.as_secs()
+                        );
+                    }
+                }
+
+                std::thread::sleep(WATCHDOG_RESTART_DELAY);
+            }
+        })
+        .ok(); // If watchdog itself can't spawn, we still run the tray (degraded mode)
 
     // Create Event Loop
     let event_loop = EventLoop::new();
@@ -65,7 +106,7 @@ pub fn run() -> ExitCode {
         &PredefinedMenuItem::separator(),
         &item_quit,
     ]) {
-        eprintln!("Failed to create tray menu: {e}");
+        tracing::error!("Failed to create tray menu: {e}");
         return ExitCode::FAILURE;
     }
 
@@ -73,7 +114,7 @@ pub fn run() -> ExitCode {
     let icon = match load_icon() {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("Failed to load icon: {e}");
+            tracing::error!("Failed to load icon: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -86,7 +127,7 @@ pub fn run() -> ExitCode {
     {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("Failed to create tray icon: {e}");
+            tracing::error!("Failed to create tray icon: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -97,6 +138,7 @@ pub fn run() -> ExitCode {
 
         if let Ok(event) = MenuEvent::receiver().try_recv() {
             if event.id == item_quit.id() {
+                tracing::info!("Quit requested, exiting");
                 *control_flow = ControlFlow::Exit;
             } else if event.id == item_next.id() {
                 spawn_oneshot(manager::next);
@@ -146,7 +188,7 @@ pub fn run() -> ExitCode {
                 if let Ok(data_dir) = AppData::get_data_dir() {
                     let _ = open::that(data_dir.join("wallpapers"));
                 } else {
-                    eprintln!("Failed to get data directory");
+                    tracing::error!("Failed to get data directory");
                 }
             } else if event.id == item_config.id() {
                 if let Ok(path) = AppData::get_config_path() {
@@ -161,7 +203,7 @@ pub fn run() -> ExitCode {
                 );
 
                 if let Err(e) = result {
-                    eprintln!("Failed to toggle autostart: {e}");
+                    tracing::error!("Failed to toggle autostart: {e}");
                     item_autostart.set_checked(!is_enabled);
                     let _ = Notification::new()
                         .summary("Wallp Error")
@@ -215,17 +257,30 @@ where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
 {
-    std::thread::spawn(move || match tokio::runtime::Runtime::new() {
-        Ok(rt) => {
-            if let Err(e) = rt.block_on(f()) {
-                eprintln!("Tray action error: {e}");
-                let _ = Notification::new()
-                    .summary("Wallp Error")
-                    .body(&e.to_string())
-                    .show();
+    std::thread::spawn(move || {
+        // catch_unwind so a panic in a tray action doesn't kill the thread silently
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            match tokio::runtime::Runtime::new() {
+                Ok(rt) => {
+                    if let Err(e) = rt.block_on(f()) {
+                        tracing::error!("Tray action error: {e}");
+                        let _ = Notification::new()
+                            .summary("Wallp Error")
+                            .body(&e.to_string())
+                            .show();
+                    }
+                }
+                Err(e) => tracing::error!("Failed to create tokio runtime: {e}"),
             }
+        }));
+
+        if let Err(e) = result {
+            tracing::error!("Tray action panicked: {e:?}");
+            let _ = Notification::new()
+                .summary("Wallp Error")
+                .body("An unexpected error occurred")
+                .show();
         }
-        Err(e) => eprintln!("Failed to create tokio runtime: {e}"),
     });
 }
 
