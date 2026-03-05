@@ -16,11 +16,11 @@ pub fn init() -> anyhow::Result<()> {
     std::fs::create_dir_all(&data_dir)?;
 
     let file_appender = rolling::daily(&data_dir, "wallp.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
     // Leak the guard so it lives for the entire process lifetime.
     // This is intentional — the tray process runs until exit.
-    std::mem::forget(_guard);
+    std::mem::forget(guard);
 
     fmt()
         .with_writer(non_blocking)
