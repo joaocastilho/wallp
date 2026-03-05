@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-03-05
+
+### Added
+- **File Logging**: Initialized `tracing` with a rolling daily file appender (`wallp.log`), replacing invisible `eprintln!` calls after console detach.
+- **Panic Hook**: Installed a global panic hook that captures panics to the log file before running the default handler.
+- **Scheduler Watchdog**: Background scheduler is now monitored by a watchdog thread that automatically restarts it after a crash (5-second delay between restarts).
+- **Tray Action Resilience**: `spawn_oneshot` thread bodies are wrapped in `catch_unwind` to prevent panics from silently killing tray action threads.
+
+### Fixed
+- **Test Linker Error (LNK1123)**: Changed `cargo:rustc-link-arg` to `cargo:rustc-link-arg-bins` in `build.rs` so Windows resource embedding only applies to binary targets, fixing COFF corruption when linking test binaries.
+
+---
+
 ## [1.2.0] - 2026-02-25
 
 ### Added
