@@ -26,7 +26,12 @@ pub fn run() -> ExitCode {
         }
     };
     if !instance.is_single() {
-        return ExitCode::SUCCESS; // Silently exit if already running
+        tracing::info!("Another instance is already running, exiting");
+        let _ = Notification::new()
+            .summary("Wallp")
+            .body("Wallp is already running in the system tray")
+            .show();
+        return ExitCode::SUCCESS;
     }
 
     // Spawn a watchdog thread that keeps the scheduler alive.
@@ -133,86 +138,100 @@ pub fn run() -> ExitCode {
     };
 
     // Event Loop (runs forever until exit)
-    event_loop.run(move |_event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
+    let exit_code = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        event_loop.run(move |_event, _, control_flow| {
+            *control_flow = ControlFlow::Wait;
 
-        if let Ok(event) = MenuEvent::receiver().try_recv() {
-            if event.id == item_quit.id() {
-                tracing::info!("Quit requested, exiting");
-                *control_flow = ControlFlow::Exit;
-            } else if event.id == item_next.id() {
-                spawn_oneshot(manager::next);
-            } else if event.id == item_prev.id() {
-                spawn_oneshot(manager::prev);
-            } else if event.id == item_new.id() {
-                spawn_oneshot(manager::new);
-            } else if event.id == item_info.id() {
-                if let Ok(exe) = std::env::current_exe() {
-                    #[cfg(target_os = "windows")]
-                    {
-                        let _ = std::process::Command::new("cmd")
-                            .args([
-                                "/c",
-                                "start",
-                                "cmd",
-                                "/k",
-                                &exe.display().to_string(),
-                                "info",
-                            ])
-                            .spawn();
-                    }
-                    #[cfg(target_os = "linux")]
-                    {
-                        let _ = std::process::Command::new("x-terminal-emulator")
-                            .args(["-e", &exe.display().to_string(), "info"])
-                            .spawn();
-                    }
-                    #[cfg(target_os = "macos")]
-                    {
-                        let _ = std::process::Command::new("osascript")
-                            .args([
-                                "-e",
-                                &format!(
-                                    "tell app \"Terminal\" to do script \"{} info\"",
-                                    exe.display()
-                                ),
-                            ])
-                            .spawn();
-                    }
-                }
-            } else if event.id == item_setup.id() {
-                if let Ok(exe) = std::env::current_exe() {
-                    let _ = std::process::Command::new(exe).arg("setup").spawn();
-                }
-            } else if event.id == item_folder.id() {
-                if let Ok(data_dir) = AppData::get_data_dir() {
-                    let _ = open::that(data_dir.join("wallpapers"));
-                } else {
-                    tracing::error!("Failed to get data directory");
-                }
-            } else if event.id == item_config.id() {
-                if let Ok(path) = AppData::get_config_path() {
-                    let _ = open::that(path);
-                }
-            } else if event.id == item_autostart.id() {
-                let is_enabled = item_autostart.is_checked();
-                // Get current exe for autostart path
-                let result = std::env::current_exe().map_or_else(
-                    |_| Err(anyhow::anyhow!("Failed to determine current executable")),
-                    |exe_path| crate::cli::setup_autostart(is_enabled, &exe_path),
-                );
+            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if let Ok(event) = MenuEvent::receiver().try_recv() {
+                    if event.id == item_quit.id() {
+                        tracing::info!("Quit requested, exiting");
+                        *control_flow = ControlFlow::Exit;
+                    } else if event.id == item_next.id() {
+                        spawn_oneshot(manager::next);
+                    } else if event.id == item_prev.id() {
+                        spawn_oneshot(manager::prev);
+                    } else if event.id == item_new.id() {
+                        spawn_oneshot(manager::new);
+                    } else if event.id == item_info.id() {
+                        if let Ok(exe) = std::env::current_exe() {
+                            #[cfg(target_os = "windows")]
+                            {
+                                let _ = std::process::Command::new("cmd")
+                                    .args([
+                                        "/c",
+                                        "start",
+                                        "cmd",
+                                        "/k",
+                                        &exe.display().to_string(),
+                                        "info",
+                                    ])
+                                    .spawn();
+                            }
+                            #[cfg(target_os = "linux")]
+                            {
+                                let _ = std::process::Command::new("x-terminal-emulator")
+                                    .args(["-e", &exe.display().to_string(), "info"])
+                                    .spawn();
+                            }
+                            #[cfg(target_os = "macos")]
+                            {
+                                let _ = std::process::Command::new("osascript")
+                                    .args([
+                                        "-e",
+                                        &format!(
+                                            "tell app \"Terminal\" to do script \"{} info\"",
+                                            exe.display()
+                                        ),
+                                    ])
+                                    .spawn();
+                            }
+                        }
+                    } else if event.id == item_setup.id() {
+                        if let Ok(exe) = std::env::current_exe() {
+                            let _ = std::process::Command::new(exe).arg("setup").spawn();
+                        }
+                    } else if event.id == item_folder.id() {
+                        if let Ok(data_dir) = AppData::get_data_dir() {
+                            let _ = open::that(data_dir.join("wallpapers"));
+                        } else {
+                            tracing::error!("Failed to get data directory");
+                        }
+                    } else if event.id == item_config.id() {
+                        if let Ok(path) = AppData::get_config_path() {
+                            let _ = open::that(path);
+                        }
+                    } else if event.id == item_autostart.id() {
+                        let is_enabled = item_autostart.is_checked();
+                        // Get current exe for autostart path
+                        let result = std::env::current_exe().map_or_else(
+                            |_| Err(anyhow::anyhow!("Failed to determine current executable")),
+                            |exe_path| crate::cli::setup_autostart(is_enabled, &exe_path),
+                        );
 
-                if let Err(e) = result {
-                    tracing::error!("Failed to toggle autostart: {e}");
-                    item_autostart.set_checked(!is_enabled);
-                    let _ = Notification::new()
-                        .summary("Wallp Error")
-                        .body(&format!("Failed to toggle autostart: {e}"))
-                        .show();
+                        if let Err(e) = result {
+                            tracing::error!("Failed to toggle autostart: {e}");
+                            item_autostart.set_checked(!is_enabled);
+                            let _ = Notification::new()
+                                .summary("Wallp Error")
+                                .body(&format!("Failed to toggle autostart: {e}"))
+                                .show();
+                        }
+                    }
                 }
+            })) {
+                tracing::error!("Panic in menu event handler: {e:?}");
             }
+        });
+    }));
+
+    match exit_code {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            tracing::error!("Event loop panicked: {e:?}");
+            ExitCode::FAILURE
         }
-    });
+    }
 }
 
 #[cfg(target_os = "macos")]

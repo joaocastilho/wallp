@@ -578,7 +578,7 @@ pub fn setup_wizard() -> Result<()> {
             }
             #[cfg(target_os = "windows")]
             {
-                add_to_path_windows(&final_exe_path)?;
+                add_to_path_windows()?;
             }
             #[cfg(target_os = "macos")]
             {
@@ -606,32 +606,31 @@ pub fn setup_wizard() -> Result<()> {
 }
 
 #[cfg(target_os = "windows")]
-fn add_to_path_windows(exe_path: &Path) -> Result<()> {
+fn add_to_path_windows() -> Result<()> {
     use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
 
-    let install_dir = exe_path
-        .parent()
-        .context("Failed to get executable directory")?;
-    let install_dir_str = install_dir.to_str().context("Invalid path")?;
+    let install_dir = AppData::get_data_dir()?;
+    let install_dir_str = install_dir
+        .to_str()
+        .context("Invalid path")?
+        .replace('/', "\\");
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (env, _) = hkcu.create_subkey("Environment")?; // Create or open
     let path_val: String = env.get_value("Path").unwrap_or_default();
 
-    // Check if already in PATH
     let paths: Vec<&str> = path_val.split(';').collect();
-    if paths
-        .iter()
-        .any(|p| p.eq_ignore_ascii_case(install_dir_str))
-    {
+    if paths.iter().any(|p| {
+        p.eq_ignore_ascii_case(&install_dir_str)
+            || p.eq_ignore_ascii_case(&install_dir_str.replace('\\', ""))
+    }) {
         println!("ℹ️ Directory already in PATH");
         return Ok(());
     }
 
-    // Append
     let new_path = if path_val.is_empty() {
-        install_dir_str.to_string()
+        install_dir_str
     } else {
         format!("{path_val};{install_dir_str}")
     };
