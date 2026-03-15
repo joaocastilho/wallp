@@ -29,6 +29,7 @@ pub fn normalize_path_for_registry(path: &Path) -> PathBuf {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[must_use]
 pub fn normalize_path_for_registry(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
