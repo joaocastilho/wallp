@@ -87,7 +87,11 @@ pub fn run() -> ExitCode {
     // Check Autostart Status
     let autostart_enabled = check_autostart_status();
 
+    // Check if scheduler is running
+    let is_running = AppData::load().map(|d| d.state.is_running).unwrap_or(true);
+
     let item_autostart = CheckMenuItem::new("Run at Startup", autostart_enabled, true, None);
+    let item_pause = CheckMenuItem::new("Pause Scheduler", !is_running, true, None);
     let item_new = MenuItem::new("New Wallpaper", true, None);
     let item_next = MenuItem::new("Next", true, None);
     let item_prev = MenuItem::new("Previous", true, None);
@@ -102,6 +106,8 @@ pub fn run() -> ExitCode {
         &item_next,
         &item_prev,
         &item_info,
+        &PredefinedMenuItem::separator(),
+        &item_pause,
         &PredefinedMenuItem::separator(),
         &item_folder,
         &item_config,
@@ -154,42 +160,54 @@ pub fn run() -> ExitCode {
                     } else if event.id == item_new.id() {
                         spawn_oneshot(manager::new);
                     } else if event.id == item_info.id() {
-                        if let Ok(exe) = std::env::current_exe() {
-                            #[cfg(target_os = "windows")]
-                            {
-                                let _ = std::process::Command::new("cmd")
-                                    .args([
-                                        "/c",
-                                        "start",
-                                        "cmd",
-                                        "/k",
-                                        &exe.display().to_string(),
-                                        "info",
-                                    ])
-                                    .spawn();
-                            }
-                            #[cfg(target_os = "linux")]
-                            {
-                                let _ = std::process::Command::new("x-terminal-emulator")
-                                    .args(["-e", &exe.display().to_string(), "info"])
-                                    .spawn();
-                            }
-                            #[cfg(target_os = "macos")]
-                            {
-                                let _ = std::process::Command::new("osascript")
-                                    .args([
-                                        "-e",
-                                        &format!(
-                                            "tell app \"Terminal\" to do script \"{} info\"",
-                                            exe.display()
-                                        ),
-                                    ])
-                                    .spawn();
+                        static INFO_TERMINAL_OPEN: std::sync::OnceLock<()> =
+                            std::sync::OnceLock::new();
+                        if INFO_TERMINAL_OPEN.get().is_none() {
+                            INFO_TERMINAL_OPEN.get_or_init(|| {});
+                            if let Ok(exe) = std::env::current_exe() {
+                                #[cfg(target_os = "windows")]
+                                {
+                                    std::process::Command::new("cmd")
+                                        .args([
+                                            "/c",
+                                            "start",
+                                            "cmd",
+                                            "/k",
+                                            &exe.display().to_string(),
+                                            "info",
+                                        ])
+                                        .spawn()
+                                        .ok();
+                                }
+                                #[cfg(target_os = "linux")]
+                                {
+                                    std::process::Command::new("x-terminal-emulator")
+                                        .args(["-e", &exe.display().to_string(), "info"])
+                                        .spawn()
+                                        .ok();
+                                }
+                                #[cfg(target_os = "macos")]
+                                {
+                                    std::process::Command::new("osascript")
+                                        .args([
+                                            "-e",
+                                            &format!(
+                                                "tell app \"Terminal\" to do script \"{} info\"",
+                                                exe.display()
+                                            ),
+                                        ])
+                                        .spawn()
+                                        .ok();
+                                }
                             }
                         }
                     } else if event.id == item_setup.id() {
-                        if let Ok(exe) = std::env::current_exe() {
-                            let _ = std::process::Command::new(exe).arg("setup").spawn();
+                        static SETUP_RUNNING: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+                        if SETUP_RUNNING.get().is_none() {
+                            SETUP_RUNNING.get_or_init(|| {});
+                            if let Ok(exe) = std::env::current_exe() {
+                                let _ = std::process::Command::new(exe).arg("setup").spawn();
+                            }
                         }
                     } else if event.id == item_folder.id() {
                         if let Ok(data_dir) = AppData::get_data_dir() {
@@ -200,6 +218,15 @@ pub fn run() -> ExitCode {
                     } else if event.id == item_config.id() {
                         if let Ok(path) = AppData::get_config_path() {
                             let _ = open::that(path);
+                        }
+                    } else if event.id == item_pause.id() {
+                        let is_paused = item_pause.is_checked();
+                        if let Ok(mut app_data) = AppData::load() {
+                            app_data.state.is_running = !is_paused;
+                            if let Err(e) = app_data.save() {
+                                tracing::error!("Failed to save scheduler state: {e}");
+                                item_pause.set_checked(is_paused);
+                            }
                         }
                     } else if event.id == item_autostart.id() {
                         let is_enabled = item_autostart.is_checked();
@@ -217,6 +244,9 @@ pub fn run() -> ExitCode {
                                 .summary("Wallp Error")
                                 .body(&format!("Failed to toggle autostart: {e}"))
                                 .show();
+                        } else if is_enabled && let Ok(mut app_data) = AppData::load() {
+                            app_data.state.is_running = true;
+                            let _ = app_data.save();
                         }
                     }
                 }

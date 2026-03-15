@@ -35,9 +35,14 @@ pub struct UnsplashClient {
 
 impl UnsplashClient {
     #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn new(access_key: &str) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("Failed to build HTTP client");
         Self {
-            client: reqwest::Client::new(),
+            client,
             access_key: access_key.trim().to_string(),
         }
     }
@@ -98,6 +103,13 @@ impl UnsplashClient {
             .bytes()
             .await
             .context("Failed to get image bytes")?;
+
+        if bytes.len() < 1024 {
+            anyhow::bail!(
+                "Downloaded file too small ({} bytes), likely invalid",
+                bytes.len()
+            );
+        }
 
         // Ensure directory exists
         if let Some(parent) = path.parent() {

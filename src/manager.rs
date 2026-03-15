@@ -165,6 +165,10 @@ async fn fetch_and_set_new(app_data: &mut AppData) -> Result<()> {
         anyhow::bail!("Unsplash Access Key is missing. Run 'wallp setup' to configure.");
     }
 
+    if app_data.config.collections.is_empty() {
+        anyhow::bail!("No collections configured. Run 'wallp setup' to add collections.");
+    }
+
     let client = UnsplashClient::new(&app_data.config.unsplash_access_key);
     let photo = client.fetch_random(&app_data.config.collections).await?;
 
@@ -222,9 +226,13 @@ async fn fetch_and_set_new(app_data: &mut AppData) -> Result<()> {
 ///
 /// Returns an error if loading the application data fails.
 pub fn get_current_wallpaper() -> Result<Option<Wallpaper>> {
-    let app_data = AppData::load()?;
+    let mut app_data = AppData::load()?;
     if app_data.history.is_empty() {
         return Ok(None);
+    }
+    if app_data.state.current_history_index >= app_data.history.len() {
+        app_data.state.current_history_index = app_data.history.len() - 1;
+        let _ = app_data.save();
     }
     Ok(app_data
         .history

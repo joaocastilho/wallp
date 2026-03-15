@@ -18,6 +18,10 @@ pub async fn start_background_task() {
 async fn check_and_run() -> anyhow::Result<()> {
     let app_data = AppData::load()?;
 
+    if !app_data.state.is_running {
+        return Ok(());
+    }
+
     if app_data.config.unsplash_access_key.is_empty() {
         return Ok(());
     }
