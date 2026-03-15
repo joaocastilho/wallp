@@ -691,7 +691,9 @@ pub fn get_shell_files(shell: &str) -> (String, String) {
 
 #[allow(dead_code)]
 fn shell_escape(s: &str) -> String {
-    s.replace('"', "\\\"").replace('$', "\\$")
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
 }
 
 #[cfg(target_os = "windows")]
@@ -912,17 +914,24 @@ pub fn setup_autostart(enable: bool, exe_path: &Path) -> Result<()> {
 }
 
 fn start_background_process(exe_path: &Path) -> Result<()> {
-    let mut cmd = Command::new(exe_path);
-
-    // Detach process on Windows to ensure it survives console close and doesn't inherit console
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
+        let mut cmd = Command::new(exe_path);
         cmd.creation_flags(DETACHED_PROCESS);
+        cmd.spawn().context("Failed to start background process")?;
     }
 
-    cmd.spawn().context("Failed to start background process")?;
+    #[cfg(not(target_os = "windows"))]
+    {
+        let exe_str = exe_path.display().to_string();
+        Command::new("nohup")
+            .arg(&exe_str)
+            .arg("-")
+            .spawn()
+            .context("Failed to start background process")?;
+    }
 
     println!("🚀 Wallp started in background.");
     Ok(())
@@ -1248,9 +1257,19 @@ fn handle_uninstall() -> Result<()> {
             println!("[WARNING] Could not stop all Wallp processes - please close Wallp manually");
         }
     }
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     {
         let output = Command::new("pkill").args(["-x", "wallp"]).output();
+        if output.map(|o| o.status.success()).unwrap_or(false) {
+            println!("[  OK  ] Stopped background processes");
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        } else {
+            println!("[WARNING] Could not stop all Wallp processes - please close Wallp manually");
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("killall").arg("wallp").output();
         if output.map(|o| o.status.success()).unwrap_or(false) {
             println!("[  OK  ] Stopped background processes");
             std::thread::sleep(std::time::Duration::from_secs(2));

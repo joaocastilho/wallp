@@ -181,10 +181,23 @@ pub fn run() -> ExitCode {
                                 }
                                 #[cfg(target_os = "linux")]
                                 {
-                                    std::process::Command::new("x-terminal-emulator")
-                                        .args(["-e", &exe.display().to_string(), "info"])
-                                        .spawn()
-                                        .ok();
+                                    let terminals = [
+                                        "gnome-terminal",
+                                        "konsole",
+                                        "xfce4-terminal",
+                                        "xterm",
+                                        "x-terminal-emulator",
+                                    ];
+                                    let exe_str = exe.display().to_string();
+                                    for terminal in terminals {
+                                        if std::process::Command::new(terminal)
+                                            .args(["-e", &exe_str, "info"])
+                                            .spawn()
+                                            .is_ok()
+                                        {
+                                            break;
+                                        }
+                                    }
                                 }
                                 #[cfg(target_os = "macos")]
                                 {
