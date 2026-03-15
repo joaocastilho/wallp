@@ -203,11 +203,12 @@ pub fn run() -> ExitCode {
                         }
                     } else if event.id == item_autostart.id() {
                         let is_enabled = item_autostart.is_checked();
-                        // Get current exe for autostart path
-                        let result = std::env::current_exe().map_or_else(
-                            |_| Err(anyhow::anyhow!("Failed to determine current executable")),
-                            |exe_path| crate::cli::setup_autostart(is_enabled, &exe_path),
-                        );
+                        let result = std::env::current_exe()
+                            .map(|exe| crate::cli::normalize_path_for_registry(&exe))
+                            .map_or_else(
+                                |_| Err(anyhow::anyhow!("Failed to determine current executable")),
+                                |exe_path| crate::cli::setup_autostart(is_enabled, &exe_path),
+                            );
 
                         if let Err(e) = result {
                             tracing::error!("Failed to toggle autostart: {e}");
@@ -258,7 +259,7 @@ fn check_autostart_status() -> bool {
         return false;
     };
 
-    let exe_path = current_exe.canonicalize().unwrap_or(current_exe);
+    let exe_path = crate::cli::normalize_path_for_registry(&current_exe);
 
     let Some(exe_path) = exe_path.to_str() else {
         return false;

@@ -122,11 +122,22 @@ fn main() -> ExitCode {
                 return ExitCode::SUCCESS;
             }
 
+            // Initialize logging before detaching console so errors are captured
+            #[cfg(target_os = "windows")]
+            {
+                if let Err(e) = logging::init() {
+                    eprintln!("Failed to initialize logging: {e}");
+                }
+            }
+
             #[cfg(target_os = "windows")]
             win_utils::detach_console();
 
-            if let Err(e) = logging::init() {
-                eprintln!("Failed to initialize logging: {e}");
+            #[cfg(not(target_os = "windows"))]
+            {
+                if let Err(e) = logging::init() {
+                    eprintln!("Failed to initialize logging: {e}");
+                }
             }
 
             return tray::run();

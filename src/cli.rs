@@ -16,6 +16,22 @@ fn format_datetime(iso: &str) -> String {
     )
 }
 
+#[cfg(target_os = "windows")]
+pub fn normalize_path_for_registry(path: &Path) -> PathBuf {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let path_str = canonical.to_string_lossy();
+    if path_str.starts_with("\\\\?\\") {
+        PathBuf::from(&path_str[4..])
+    } else {
+        canonical
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn normalize_path_for_registry(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
 #[derive(Parser)]
 #[command(name = "wallp")]
 #[command(version = env!("CARGO_PKG_VERSION"), disable_version_flag = true, about = "A cross-platform wallpaper manager.", long_about = None)]
@@ -216,7 +232,7 @@ pub fn is_autostart_enabled() -> bool {
         return false;
     };
 
-    let exe_path = current_exe.canonicalize().unwrap_or(current_exe);
+    let exe_path = normalize_path_for_registry(&current_exe);
 
     let Some(exe_path) = exe_path.to_str() else {
         return false;
@@ -877,10 +893,8 @@ fn build_auto_launch(app_path: &str) -> Result<auto_launch::AutoLaunch> {
 ///
 /// Returns an error if the auto-launch builder fails or if enabling/disabling fails.
 pub fn setup_autostart(enable: bool, exe_path: &Path) -> Result<()> {
-    let canonical_path = exe_path
-        .canonicalize()
-        .unwrap_or_else(|_| exe_path.to_path_buf());
-    let app_path = canonical_path
+    let normalized_path = normalize_path_for_registry(exe_path);
+    let app_path = normalized_path
         .to_str()
         .context("Failed to get executable path as string")?;
 
