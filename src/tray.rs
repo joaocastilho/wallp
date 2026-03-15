@@ -201,16 +201,22 @@ pub fn run() -> ExitCode {
                                 }
                                 #[cfg(target_os = "macos")]
                                 {
-                                    std::process::Command::new("osascript")
-                                        .args([
-                                            "-e",
-                                            &format!(
-                                                "tell app \"Terminal\" to do script \"{} info\"",
-                                                exe.display()
-                                            ),
-                                        ])
-                                        .spawn()
-                                        .ok();
+                                    let exe_str = exe.display().to_string();
+                                    let terminals = ["iTerm", "Terminal"];
+                                    for terminal in terminals {
+                                        if std::process::Command::new("osascript")
+                                            .args([
+                                                "-e",
+                                                &format!(
+                                                    "tell app \"{terminal}\" to do script \"{exe_str} info\""
+                                                ),
+                                            ])
+                                            .spawn()
+                                            .is_ok()
+                                        {
+                                            break;
+                                        }
+                                    }
                                 }
                             }
                         }

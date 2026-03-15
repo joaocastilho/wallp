@@ -18,6 +18,7 @@ pub async fn next() -> Result<()> {
         match set_wallpaper_from_history(wallpaper) {
             Ok(()) => {
                 app_data.state.current_history_index = target_index;
+                app_data.state.current_wallpaper_id = Some(wallpaper.id.clone());
 
                 // IMPORTANT: Update next_run calculation to prevent immediate re-triggering
                 // if we are just browsing history.
@@ -60,6 +61,7 @@ pub async fn prev() -> Result<()> {
         match set_wallpaper_from_history(wallpaper) {
             Ok(()) => {
                 app_data.state.current_history_index = prev_index;
+                app_data.state.current_wallpaper_id = Some(wallpaper.id.clone());
 
                 #[allow(clippy::cast_possible_wrap)]
                 let next_run =
@@ -129,6 +131,7 @@ pub async fn set_by_index(index: usize) -> Result<()> {
     }
 
     app_data.state.current_history_index = actual_index;
+    app_data.state.current_wallpaper_id = Some(wallpaper.id.clone());
 
     #[allow(clippy::cast_possible_wrap)]
     let next_run = Utc::now() + chrono::Duration::minutes(app_data.config.interval_minutes as i64);
