@@ -60,6 +60,12 @@ pub async fn prev() -> Result<()> {
         match set_wallpaper_from_history(wallpaper) {
             Ok(()) => {
                 app_data.state.current_history_index = prev_index;
+
+                #[allow(clippy::cast_possible_wrap)]
+                let next_run =
+                    Utc::now() + chrono::Duration::minutes(app_data.config.interval_minutes as i64);
+                app_data.state.next_run_at = next_run.to_rfc3339();
+
                 app_data.save()?;
                 return Ok(());
             }

@@ -180,8 +180,8 @@ fn parse_interval(input: &str) -> Result<u64, String> {
 }
 
 fn format_interval_for_display(minutes: u64) -> String {
-    if minutes >= 1440 {
-        format!("{}d", minutes / 1440)
+    if minutes >= 60 * 24 {
+        format!("{}d", minutes / (60 * 24))
     } else if minutes >= 60 {
         format!("{}h", minutes / 60)
     } else {
@@ -1007,6 +1007,13 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
                 let max_more = 10;
 
                 loop {
+                    let data = AppData::load()?;
+                    let history_len = data.history.len();
+
+                    if shown >= history_len {
+                        break;
+                    }
+
                     let to_show = if shown == 0 { max_initial } else { max_more };
                     let items: Vec<String> = data
                         .history
@@ -1082,13 +1089,53 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
         }
         Commands::List => {
             let data = AppData::load()?;
-            for (i, w) in data.history.iter().rev().take(5).enumerate() {
-                println!(
-                    "{}: {} by {}",
-                    i,
-                    w.title.clone().unwrap_or_default(),
-                    w.author.clone().unwrap_or_default()
-                );
+            let history_len = data.history.len();
+            let max_initial = 5;
+            let max_more = 10;
+
+            let mut shown = 0;
+            loop {
+                let to_show = if shown == 0 { max_initial } else { max_more };
+                let items: Vec<String> = data
+                    .history
+                    .iter()
+                    .rev()
+                    .skip(shown)
+                    .take(to_show)
+                    .enumerate()
+                    .map(|(i, w)| {
+                        let idx = shown + i;
+                        format!(
+                            "{}: {} by {}",
+                            idx,
+                            w.title.clone().unwrap_or_default(),
+                            w.author.clone().unwrap_or_default()
+                        )
+                    })
+                    .collect();
+
+                for item in &items {
+                    println!("{item}");
+                }
+
+                shown += items.len();
+
+                if shown >= history_len {
+                    break;
+                }
+
+                let prompt = "'m' for more, 'q' to quit:";
+
+                print!("Enter {prompt} ");
+                let input: String = Input::new().interact().context("Failed to get input")?;
+
+                if input.eq_ignore_ascii_case("q") {
+                    break;
+                }
+
+                if !input.eq_ignore_ascii_case("m") {
+                    break;
+                }
             }
         }
         Commands::Settings => {

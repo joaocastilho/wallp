@@ -22,7 +22,19 @@ async fn check_and_run() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let next_run = chrono::DateTime::parse_from_rfc3339(&app_data.state.next_run_at)?;
+    let next_run = match chrono::DateTime::parse_from_rfc3339(&app_data.state.next_run_at) {
+        Ok(dt) => dt.with_timezone(&chrono::Utc),
+        Err(e) => {
+            tracing::warn!("Invalid next_run_at in config: {e}. Resetting schedule.");
+            if let Ok(mut app_data) = AppData::load() {
+                let next_run = Utc::now()
+                    + chrono::Duration::minutes(app_data.config.interval_minutes.cast_signed());
+                app_data.state.next_run_at = next_run.to_rfc3339();
+                let _ = app_data.save();
+            }
+            return Ok(());
+        }
+    };
 
     if Utc::now() >= next_run
         && let Err(e) = manager::next().await
