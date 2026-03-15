@@ -141,7 +141,7 @@ impl AppData {
     }
 
     #[cfg(not(target_os = "linux"))]
-    #[allow(dead_code)]
+    #[allow(dead_code, clippy::missing_errors_doc)]
     pub fn get_binary_dir() -> anyhow::Result<PathBuf> {
         anyhow::bail!("Binary directory only applicable on Linux")
     }

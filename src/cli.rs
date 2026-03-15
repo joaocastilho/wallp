@@ -17,11 +17,12 @@ fn format_datetime(iso: &str) -> String {
 }
 
 #[cfg(target_os = "windows")]
+#[must_use]
 pub fn normalize_path_for_registry(path: &Path) -> PathBuf {
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let path_str = canonical.to_string_lossy();
-    if path_str.starts_with("\\\\?\\") {
-        PathBuf::from(&path_str[4..])
+    if let Some(stripped) = path_str.strip_prefix("\\\\?\\") {
+        PathBuf::from(stripped)
     } else {
         canonical
     }
