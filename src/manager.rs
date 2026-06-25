@@ -3,25 +3,60 @@ use crate::unsplash::UnsplashClient;
 use anyhow::Result;
 use chrono::Utc;
 
-///
-/// # Errors
-///
-/// Returns an error if loading/saving settings or fetching/setting a wallpaper fails.
+#[allow(clippy::missing_errors_doc, clippy::unused_async)]
+pub async fn set_lockscreen_wallpaper(path: &std::path::Path) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Storage::StorageFile;
+        use windows::System::UserProfile::LockScreen;
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
+        let (file, action) = {
+            let hpath = windows::core::HSTRING::from(path_str);
+            let op = StorageFile::GetFileFromPathAsync(&hpath)?;
+            drop(hpath);
+            let file = op.await?;
+            let action = LockScreen::SetImageFileAsync(&file)?;
+            (file, action)
+        };
+        drop(file);
+        action.await?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
+async fn set_lockscreen_from_file(app_data: &AppData, path: &std::path::Path) -> Result<()> {
+    if !app_data.config.lockscreen_enabled {
+        return Ok(());
+    }
+    set_lockscreen_wallpaper(path).await
+}
+
+#[allow(clippy::missing_errors_doc)]
+pub async fn new() -> Result<()> {
+    let mut app_data = AppData::load()?;
+    fetch_and_set_new(&mut app_data).await
+}
+
+#[allow(clippy::missing_errors_doc)]
 pub async fn next() -> Result<()> {
     let mut app_data = AppData::load()?;
 
-    // Check if we can "redo" -> move forward in history
     while app_data.state.current_history_index < app_data.history.len().saturating_sub(1) {
         let target_index = app_data.state.current_history_index + 1;
         let wallpaper = &app_data.history[target_index];
 
-        match set_wallpaper_from_history(wallpaper) {
+        match set_wallpaper_from_history(wallpaper).await {
             Ok(()) => {
                 app_data.state.current_history_index = target_index;
                 app_data.state.current_wallpaper_id = Some(wallpaper.id.clone());
 
-                // IMPORTANT: Update next_run calculation to prevent immediate re-triggering
-                // if we are just browsing history.
                 #[allow(clippy::cast_possible_wrap)]
                 let next_run =
                     Utc::now() + chrono::Duration::minutes(app_data.config.interval_minutes as i64);
@@ -35,22 +70,15 @@ pub async fn next() -> Result<()> {
                     "Warning: Failed to set next wallpaper (possibly missing file): {e}. Removing from history array."
                 );
                 app_data.history.remove(target_index);
-                // By removing `target_index`, the active array shifts left.
-                // The true 'next' item is now at `target_index` again.
-                // We deliberately do not increment `current_history_index`.
             }
         }
     }
 
-    // Otherwise fetch new
-    app_data.save()?; // Save history array cleanups before continuing
+    app_data.save()?;
     fetch_and_set_new(&mut app_data).await
 }
 
-///
-/// # Errors
-///
-/// Returns an error if loading/saving settings fails, if no previous wallpaper is available, or if setting a wallpaper fails.
+#[allow(clippy::missing_errors_doc)]
 pub async fn prev() -> Result<()> {
     let mut app_data = AppData::load()?;
 
@@ -58,7 +86,7 @@ pub async fn prev() -> Result<()> {
         let prev_index = app_data.state.current_history_index - 1;
         let wallpaper = &app_data.history[prev_index];
 
-        match set_wallpaper_from_history(wallpaper) {
+        match set_wallpaper_from_history(wallpaper).await {
             Ok(()) => {
                 app_data.state.current_history_index = prev_index;
                 app_data.state.current_wallpaper_id = Some(wallpaper.id.clone());
@@ -74,32 +102,16 @@ pub async fn prev() -> Result<()> {
             Err(e) => {
                 eprintln!("Warning: Failed to set previous wallpaper: {e}. Removing from history.");
                 app_data.history.remove(prev_index);
-                // When we remove prev_index, the current item shifts left into prev_index.
-                // We update current_history_index to track it, but we want to try the new prev_index next loop.
-                // The loop condition and target recalculation naturally handles this.
                 app_data.state.current_history_index = prev_index;
             }
         }
     }
 
-    app_data.save()?; // Save cleanups
+    app_data.save()?;
     anyhow::bail!("No previous wallpaper available (or all previous files were missing)");
 }
 
-///
-/// # Errors
-///
-/// Returns an error if loading/saving settings or fetching/setting a wallpaper fails.
-pub async fn new() -> Result<()> {
-    let mut app_data = AppData::load()?;
-    fetch_and_set_new(&mut app_data).await
-}
-
-///
-/// # Errors
-///
-/// Returns an error if loading/saving settings fails, if the index is out of bounds, or if setting a wallpaper fails.
-#[allow(clippy::unused_async)]
+#[allow(clippy::missing_errors_doc, clippy::unused_async)]
 pub async fn set_by_index(index: usize) -> Result<()> {
     let mut app_data = AppData::load()?;
     let history_len = app_data.history.len();
@@ -108,7 +120,6 @@ pub async fn set_by_index(index: usize) -> Result<()> {
         anyhow::bail!("No wallpaper in history");
     }
 
-    // Convert display index to actual index (reverse: 0 = most recent)
     let actual_index = history_len.saturating_sub(1).saturating_sub(index);
 
     if actual_index >= history_len {
@@ -116,11 +127,10 @@ pub async fn set_by_index(index: usize) -> Result<()> {
     }
 
     let wallpaper = &app_data.history[actual_index];
-    if let Err(e) = set_wallpaper_from_history(wallpaper) {
+    if let Err(e) = set_wallpaper_from_history(wallpaper).await {
         eprintln!("Warning: Failed to set wallpaper by index: {e}. Removing from history.");
         app_data.history.remove(actual_index);
 
-        // Fix up current_history_index if we removed an item before or at the current index
         if actual_index <= app_data.state.current_history_index {
             app_data.state.current_history_index =
                 app_data.state.current_history_index.saturating_sub(1);
@@ -142,15 +152,11 @@ pub async fn set_by_index(index: usize) -> Result<()> {
     Ok(())
 }
 
-// Ensure local file exists before setting
-fn set_wallpaper_from_history(wallpaper: &Wallpaper) -> Result<()> {
+async fn set_wallpaper_from_history(wallpaper: &Wallpaper) -> Result<()> {
     let data_dir = AppData::get_data_dir()?;
     let path = data_dir.join("wallpapers").join(&wallpaper.filename);
 
     if !path.exists() {
-        // If missing, we might need to re-download if we have the URL?
-        // For now, let's error or try to re-download if url present?
-        // Simplicity: Error.
         anyhow::bail!("Wallpaper file not found: {}", path.display());
     }
 
@@ -159,6 +165,9 @@ fn set_wallpaper_from_history(wallpaper: &Wallpaper) -> Result<()> {
             .map_err(|e| anyhow::anyhow!("Failed to set wallpaper: {e}"))?,
         None => return Err(anyhow::anyhow!("Wallpaper path contains invalid UTF-8")),
     }
+
+    let app_data = AppData::load()?;
+    set_lockscreen_from_file(&app_data, &path).await?;
 
     Ok(())
 }
@@ -193,6 +202,8 @@ async fn fetch_and_set_new(app_data: &mut AppData) -> Result<()> {
         },
     )?;
 
+    set_lockscreen_from_file(app_data, &file_path).await?;
+
     let new_wallpaper = Wallpaper {
         id: photo.id.clone(),
         filename,
@@ -202,19 +213,15 @@ async fn fetch_and_set_new(app_data: &mut AppData) -> Result<()> {
         url: Some(photo.links.html),
     };
 
-    // Append new wallpaper to history and set current index to the new item
-
     app_data.history.push(new_wallpaper);
     app_data.state.current_history_index = app_data.history.len() - 1;
     app_data.state.current_wallpaper_id = Some(photo.id);
     app_data.state.last_run_at = Utc::now().to_rfc3339();
 
-    // Schedule next run
     #[allow(clippy::cast_possible_wrap)]
     let next_run = Utc::now() + chrono::Duration::minutes(app_data.config.interval_minutes as i64);
     app_data.state.next_run_at = next_run.to_rfc3339();
 
-    // Clean up old wallpapers based on retention_days setting
     if let Err(e) = app_data.cleanup_old_wallpapers() {
         eprintln!("Warning: Failed to clean up old wallpapers: {e}");
     }
@@ -224,10 +231,7 @@ async fn fetch_and_set_new(app_data: &mut AppData) -> Result<()> {
     Ok(())
 }
 
-///
-/// # Errors
-///
-/// Returns an error if loading the application data fails.
+#[allow(clippy::missing_errors_doc)]
 pub fn get_current_wallpaper() -> Result<Option<Wallpaper>> {
     let mut app_data = AppData::load()?;
     if app_data.history.is_empty() {
@@ -265,7 +269,6 @@ mod tests {
         app_data.history.clear();
         app_data.state.current_history_index = 0;
 
-        // Simulate the logic from get_current_wallpaper
         let result = if app_data.history.is_empty() {
             None
         } else {
@@ -312,7 +315,6 @@ mod tests {
     fn test_history_index_bounds_next() -> anyhow::Result<()> {
         let (_, mut app_data) = create_test_env()?;
 
-        // Add 3 wallpapers
         for i in 0..3 {
             app_data.history.push(Wallpaper {
                 id: format!("id_{i}"),
@@ -323,12 +325,11 @@ mod tests {
                 url: None,
             });
         }
-        app_data.state.current_history_index = 2; // At last item
+        app_data.state.current_history_index = 2;
 
-        // Simulate next() logic - should try to go forward (would fetch new)
         let can_go_forward =
             app_data.state.current_history_index < app_data.history.len().saturating_sub(1);
-        assert!(!can_go_forward); // Cannot go forward, would fetch new
+        assert!(!can_go_forward);
         Ok(())
     }
 
@@ -347,9 +348,8 @@ mod tests {
 
         app_data.state.current_history_index = 0;
 
-        // Simulate prev() logic
         let can_go_back = app_data.state.current_history_index > 0;
-        assert!(!can_go_back); // Cannot go back from first item
+        assert!(!can_go_back);
         Ok(())
     }
 
@@ -369,10 +369,7 @@ mod tests {
         }
         app_data.state.current_history_index = 1;
 
-        // Can go prev
         assert!(app_data.state.current_history_index > 0);
-
-        // Can go next
         assert!(app_data.state.current_history_index < app_data.history.len() - 1);
         Ok(())
     }

@@ -24,6 +24,7 @@ Wallp is a powerful yet minimal CLI and System Tray application that automatical
 | ⏪ **Smart History** | Unlimited undo/redo with session persistence across restarts |
 | ⏰ **Auto-Cycling** | Set custom intervals (1 minute to 24 hours) for automatic wallpaper changes |
 | 🖼️ **Unsplash Integration** | Access millions of high-quality photos from curated collections |
+| 🔒 **LockScreen Sync** | Optionally sync desktop wallpaper to Windows lock screen (Windows only) |
 | 🖥️ **Cross-Platform** | Native support for Windows, macOS, and Linux |
 | 🚀 **Auto-Start** | Silently launches on system boot with no UI interruption |
 | 📦 **Zero Dependencies** | Single binary with no external runtime requirements |
@@ -108,6 +109,7 @@ The wizard will:
 | `wallp config edit` | Open config file in default editor | `wallp config edit` |
 | `wallp config set <key> <value>` | Set a config value | `wallp config set interval_minutes 60` |
 | `wallp list` | Show recent wallpaper history | `wallp list` |
+| `wallp lockscreen` | Show/manage lockscreen wallpaper | `wallp lockscreen on/off/status` |
 | `wallp uninstall` | Remove Wallp and all data | `wallp uninstall` |
 
 ---
@@ -151,7 +153,9 @@ Configuration is stored in JSON format at your platform's standard data director
     ],
     "interval_minutes": 120,
     "aspect_ratio_tolerance": 0.1,
-    "retention_days": 7
+    "retention_days": 7,
+    "lockscreen_enabled": true,
+    "lockscreen_collections": []
   },
   "state": {
     "is_running": true,
@@ -173,6 +177,8 @@ Configuration is stored in JSON format at your platform's standard data director
 | `interval_minutes` | integer | 120 | Auto-cycle interval (0 = disabled) |
 | `aspect_ratio_tolerance` | float | 0.1 | Screen aspect ratio matching tolerance |
 | `retention_days` | integer | 7 | Days to keep old wallpapers (0 = keep forever) |
+| `lockscreen_enabled` | bool | true | Sync wallpaper to Windows lock screen |
+| `lockscreen_collections` | array | `[]` | Separate Unsplash collections for lock screen (empty = use desktop) |
 
 ---
 

@@ -88,7 +88,7 @@ pub fn run() -> ExitCode {
     let autostart_enabled = check_autostart_status();
 
     // Check if scheduler is running
-    let is_running = AppData::load().map(|d| d.state.is_running).unwrap_or(true);
+    let is_running = AppData::load().map_or(true, |d| d.state.is_running);
 
     let item_autostart = CheckMenuItem::new("Run at Startup", autostart_enabled, true, None);
     let item_pause = CheckMenuItem::new("Pause Scheduler", !is_running, true, None);

@@ -12,12 +12,15 @@ pub struct AppData {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct Config {
     pub unsplash_access_key: String,
     pub collections: Vec<String>,
     pub custom_collections: Vec<(String, String)>,
     pub interval_minutes: u64,
     pub retention_days: Option<u64>,
+    pub lockscreen_enabled: bool,
+    pub lockscreen_collections: Vec<String>,
 }
 
 impl Config {}
@@ -53,6 +56,8 @@ impl Default for Config {
             custom_collections: Vec::new(),
             interval_minutes: 1440,
             retention_days: Some(7),
+            lockscreen_enabled: true,
+            lockscreen_collections: Vec::new(),
         }
     }
 }
@@ -264,6 +269,8 @@ mod tests {
         assert_eq!(config.collections.len(), 3);
         assert_eq!(config.interval_minutes, 1440);
         assert_eq!(config.retention_days, Some(7));
+        assert!(config.lockscreen_enabled);
+        assert!(config.lockscreen_collections.is_empty());
     }
 
     #[test]

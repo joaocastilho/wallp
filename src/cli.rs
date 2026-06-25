@@ -77,6 +77,14 @@ pub enum Commands {
 
     /// run interactive setup wizard
     Setup,
+    /// configure lockscreen wallpaper
+    Lockscreen {
+        /// enable lockscreen (e.g., "on", "off", "status")
+        action: Option<String>,
+        /// collection IDs for lockscreen (comma-separated)
+        #[arg(long = "collections")]
+        collections: Option<String>,
+    },
     /// remove wallp and all data
     Uninstall,
 }
@@ -87,7 +95,7 @@ impl Commands {
         match self {
             Self::New | Self::Next | Self::Prev | Self::Info | Self::Set { .. } => 0,
             Self::Status | Self::List | Self::Settings | Self::Folder | Self::Config => 1,
-            Self::Setup | Self::Uninstall => 2,
+            Self::Setup | Self::Uninstall | Self::Lockscreen { .. } => 2,
         }
     }
 
@@ -113,6 +121,10 @@ impl Commands {
                     "folder" => Self::Folder,
                     "config" => Self::Config,
                     "setup" => Self::Setup,
+                    "lockscreen" => Self::Lockscreen {
+                        action: None,
+                        collections: None,
+                    },
                     "uninstall" => Self::Uninstall,
                     _ => Self::New,
                 };
@@ -203,9 +215,7 @@ pub fn is_initialized() -> bool {
     let is_installed = {
         #[cfg(target_os = "linux")]
         {
-            AppData::get_binary_dir()
-                .map(|dir| dir.join(get_exe_name()).exists())
-                .unwrap_or(false)
+            AppData::get_binary_dir().is_ok_and(|dir| dir.join(get_exe_name()).exists())
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -253,8 +263,7 @@ pub fn is_autostart_enabled() -> bool {
         .set_app_path(exe_path)
         .build();
 
-    auto.map(|a| a.is_enabled().unwrap_or(false))
-        .unwrap_or(false)
+    auto.is_ok_and(|a| a.is_enabled().unwrap_or(false))
 }
 
 /// Runs the interactive setup wizard.
@@ -439,6 +448,36 @@ pub fn setup_wizard() -> Result<()> {
         }
     };
 
+    // LockScreen prompt
+    println!();
+    println!("🔒 LockScreen Configuration");
+    println!("Note: LockScreen wallpaper support is currently Windows-only.");
+
+    let enable_lockscreen = Confirm::new()
+        .with_prompt("Enable LockScreen wallpaper?")
+        .default(app_data.config.lockscreen_enabled)
+        .interact()
+        .context("Failed to get lockscreen confirmation")?;
+
+    let lockscreen_collections = if enable_lockscreen {
+        println!(
+            "Enter lockScreen collection IDs (comma-separated, leave empty to use desktop collections):"
+        );
+        let input: String = Input::new()
+            .with_prompt("LockScreen collections (optional)")
+            .default(app_data.config.lockscreen_collections.join(","))
+            .interact()
+            .context("Failed to get lockscreen collections")?;
+        input
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     // Ask about system integration (skip PATH if already installed)
     println!();
     println!("🔧 System Integration");
@@ -498,6 +537,8 @@ pub fn setup_wizard() -> Result<()> {
         app_data.config.collections = new_collections;
         app_data.config.custom_collections = updated_custom_collections;
         app_data.config.retention_days = retention_days;
+        app_data.config.lockscreen_enabled = enable_lockscreen;
+        app_data.config.lockscreen_collections = lockscreen_collections;
         app_data.save()?;
 
         println!();
@@ -577,6 +618,8 @@ pub fn setup_wizard() -> Result<()> {
         app_data.config.collections = new_collections;
         app_data.config.custom_collections = updated_custom_collections;
         app_data.config.retention_days = retention_days;
+        app_data.config.lockscreen_enabled = enable_lockscreen;
+        app_data.config.lockscreen_collections = lockscreen_collections;
         app_data.save()?;
 
         // Setup Autostart
@@ -667,9 +710,8 @@ fn add_to_path_unix(_exe_path: &Path) {
 
 #[allow(dead_code)]
 fn get_shell_name() -> &'static str {
-    let shell = std::env::var("SHELL")
-        .map(|s| if s.contains("zsh") { "zsh" } else { "bash" })
-        .unwrap_or("bash");
+    let shell =
+        std::env::var("SHELL").map_or("bash", |s| if s.contains("zsh") { "zsh" } else { "bash" });
 
     // Validate shell exists
     let shell_paths = ["/bin", "/usr/bin", "/usr/local/bin"];
@@ -1217,6 +1259,72 @@ pub fn handle_command(cmd: &Commands) -> Result<()> {
             println!("Retention: {retention_str}");
             println!("Autostart: {autostart_str}");
             println!("Application in PATH: {path_str}");
+            println!(
+                "LockScreen Enabled: {}",
+                if config.lockscreen_enabled {
+                    "Yes"
+                } else {
+                    "No"
+                }
+            );
+            if config.lockscreen_enabled {
+                let lockscreen_col_str = if config.lockscreen_collections.is_empty() {
+                    "Use desktop collections".to_string()
+                } else {
+                    config.lockscreen_collections.join(", ")
+                };
+                println!("LockScreen Collections: {lockscreen_col_str}");
+            }
+        }
+        Commands::Lockscreen {
+            action,
+            collections,
+        } => {
+            let mut data = AppData::load()?;
+
+            if let Some(cols) = collections {
+                data.config.lockscreen_collections = cols
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .collect();
+                data.save()?;
+                println!("✅ LockScreen collections updated.");
+            }
+
+            match action.as_deref() {
+                Some("on" | "enable") => {
+                    data.config.lockscreen_enabled = true;
+                    data.save()?;
+                    println!("✅ LockScreen wallpaper enabled.");
+                }
+                Some("off" | "disable") => {
+                    data.config.lockscreen_enabled = false;
+                    data.save()?;
+                    println!("✅ LockScreen wallpaper disabled.");
+                }
+                Some("status") | None => {
+                    println!();
+                    println!(
+                        "LockScreen: {}",
+                        if data.config.lockscreen_enabled {
+                            "Enabled"
+                        } else {
+                            "Disabled"
+                        }
+                    );
+                    let col_str = if data.config.lockscreen_collections.is_empty() {
+                        "Use desktop collections".to_string()
+                    } else {
+                        data.config.lockscreen_collections.join(", ")
+                    };
+                    println!("Collections: {col_str}");
+                }
+                Some(other) => {
+                    eprintln!("Unknown action: {other}. Use 'on', 'off', or 'status'.");
+                }
+            }
         }
         Commands::Uninstall => handle_uninstall()?,
     }
@@ -1251,7 +1359,7 @@ fn handle_uninstall() -> Result<()> {
             .args(["/F", "/IM", "wallp.exe", "/FI", &format!("PID ne {my_pid}")])
             .output();
 
-        if output.map(|o| o.status.success()).unwrap_or(false) {
+        if output.is_ok_and(|o| o.status.success()) {
             println!("[  OK  ] Stopped background processes");
             std::thread::sleep(std::time::Duration::from_secs(2));
         } else {
@@ -1261,7 +1369,7 @@ fn handle_uninstall() -> Result<()> {
     #[cfg(target_os = "linux")]
     {
         let output = Command::new("pkill").args(["-x", "wallp"]).output();
-        if output.map(|o| o.status.success()).unwrap_or(false) {
+        if output.is_ok_and(|o| o.status.success()) {
             println!("[  OK  ] Stopped background processes");
             std::thread::sleep(std::time::Duration::from_secs(2));
         } else {
@@ -1271,7 +1379,7 @@ fn handle_uninstall() -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         let output = Command::new("killall").arg("wallp").output();
-        if output.map(|o| o.status.success()).unwrap_or(false) {
+        if output.is_ok_and(|o| o.status.success()) {
             println!("[  OK  ] Stopped background processes");
             std::thread::sleep(std::time::Duration::from_secs(2));
         } else {
